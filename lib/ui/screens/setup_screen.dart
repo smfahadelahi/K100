@@ -514,7 +514,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
   Widget _modelStep(ThemeData theme, LearnerProfile profile) {
     final AsyncValue<Set<String>> installed = ref.watch(installedModelsProvider);
-    final Set<String> installedIds = installed.valueOrNull ?? <String>{};
+    final Set<String> installedIds = installed.asData?.value ?? <String>{};
     final ModelEntry? selected = ref.watch(selectedModelProvider);
     final TutorRuntimeState runtime = ref.watch(tutorControllerProvider);
 

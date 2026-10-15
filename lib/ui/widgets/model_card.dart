@@ -130,7 +130,7 @@ class _ModelCardState extends ConsumerState<ModelCard> {
     final ThemeData theme = Theme.of(context);
     final AsyncValue<DownloadProgress> progressAsync =
         ref.watch(downloadProgressProvider);
-    final DownloadProgress? progress = progressAsync.valueOrNull;
+    final DownloadProgress? progress = progressAsync.asData?.value;
     final DownloadProgress own =
         (progress != null && progress.modelId == entry.id)
             ? progress

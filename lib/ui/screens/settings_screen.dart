@@ -224,10 +224,10 @@ class SettingsScreen extends ConsumerWidget {
               padding: const EdgeInsets.symmetric(vertical: 10),
               child: Row(
                 children: <Widget>[
-                  _stat(theme, 'Sessions', counts.valueOrNull?['sessions'] ?? 0),
-                  _stat(theme, 'Messages', counts.valueOrNull?['messages'] ?? 0),
-                  _stat(theme, 'Phrases', counts.valueOrNull?['vocabulary'] ?? 0),
-                  _stat(theme, 'Days', counts.valueOrNull?['days'] ?? 0),
+                  _stat(theme, 'Sessions', counts.asData?.value?['sessions'] ?? 0),
+                  _stat(theme, 'Messages', counts.asData?.value?['messages'] ?? 0),
+                  _stat(theme, 'Phrases', counts.asData?.value?['vocabulary'] ?? 0),
+                  _stat(theme, 'Days', counts.asData?.value?['days'] ?? 0),
                 ],
               ),
             ),
@@ -411,7 +411,7 @@ class SettingsScreen extends ConsumerWidget {
     LearnerProfile profile,
     AsyncValue<List<TtsVoice>> voices,
   ) {
-    final List<TtsVoice> matching = (voices.valueOrNull ?? <TtsVoice>[])
+    final List<TtsVoice> matching = (voices.asData?.value ?? <TtsVoice>[])
         .where((TtsVoice voice) =>
             voice.language == profile.targetLanguage.code.toLowerCase())
         .toList();

@@ -405,7 +405,9 @@ class DailyProgress {
     return names[date.weekday - 1];
   }
 
-  double get goalFraction(int goalMinutes) {
+  /// Fraction of the daily goal completed (0..1). A method, not a getter:
+  /// the goal is per-day configuration, not part of the value.
+  double goalFraction(int goalMinutes) {
     if (goalMinutes <= 0) return 0;
     return (minutes / goalMinutes).clamp(0.0, 1.0);
   }

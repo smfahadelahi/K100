@@ -6,7 +6,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
-import 'package:fcllama/fcllama.dart';
+import 'package:fcllama/fllama.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -690,6 +690,13 @@ class ModelDownloader {
   DownloadProgress _currentOr(String modelId) =>
       _current.modelId == modelId ? _current : DownloadProgress.idle(modelId);
 
+  /// Publishes a progress update: stores it as the current snapshot and pushes it
+  /// to [progressStream] listeners.
+  void _emit(DownloadProgress progress) {
+    _current = progress;
+    if (!_progress.isClosed) _progress.add(progress);
+  }
+
   void _emitFailed(String modelId, String message) {
     _emit(
       _currentOr(modelId).copyWith(
@@ -707,12 +714,6 @@ class ModelDownloader {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.receiveTimeout:
         return 'The connection timed out. Check your network and tap resume.';
-      // dio adds members to this enum between minor releases
-      // (`transformTimeout` arrived in 5.11). Exhaustiveness over a *package*
-      // enum is a compile error waiting to happen, so the switch is closed with
-      // a default and the specific cases stay above it.
-      default:
-        return 'The download failed: ${error.message ?? error.type.name}';
       case DioExceptionType.sendTimeout:
         return 'Upload timed out — unusual for a download. Try again.';
       case DioExceptionType.badResponse:
@@ -738,6 +739,12 @@ class ModelDownloader {
         return 'The server certificate could not be verified.';
       case DioExceptionType.unknown:
         return 'Network error: ${error.message ?? 'unknown'}';
+      // dio adds members to this enum between minor releases (`transformTimeout`
+      // arrived in 5.11). Exhaustiveness over a *package* enum is a compile
+      // error waiting to happen, so this switch ends with a default — and it
+      // must be the *last* case.
+      default:
+        return 'The download failed: ${error.message ?? error.type.name}';
     }
   }
 
@@ -916,6 +923,7 @@ class LlmService {
 
   StreamSubscription<dynamic>? _tokenSubscription;
   void Function(String delta)? _onToken;
+  void Function(double progress)? _onLoadProgress;
   Completer<void>? _firstToken;
 
   // ── Accessors ─────────────────────────────────────────────────────────────
@@ -982,15 +990,27 @@ class LlmService {
         '(${formatBytes(sizeBytes)}) · threads=$_threads · ctx=$_contextSize');
 
     try {
-      _engine = FCllama.instance();
-      _tokenSubscription = _engine!.onTokenStream.listen(
+      final FCllama? engine = FCllama.instance();
+      if (engine == null) {
+        throw LlmException(
+          'The llama.cpp engine is not available on this device. It is built '
+          'for arm64-v8a only — check that this is a 64-bit ARM phone.',
+        );
+      }
+      _engine = engine;
+
+      // `onTokenStream` is null until the native side has registered its
+      // channel, so it is subscribed lazily and tolerant of a null.
+      _engine!.onTokenStream?.listen(
         _handleEngineEvent,
         onError: (Object error) => Log.warn('Engine stream error', error),
       );
 
-      final double? id = await _engine!.initContext(
+      // Load progress arrives as `loadProgress` events on the same stream.
+      _onLoadProgress = onProgress;
+
+      final Map<Object?, dynamic>? context = await _engine!.initContext(
         path,
-        modelType: 1,
         embedding: false,
         nCtx: _contextSize,
         nBatch: AppConfig.promptBatch,
@@ -1001,8 +1021,14 @@ class LlmService {
         emitLoadProgress: onProgress != null,
       );
 
+      // The context id lives in the returned map (`{'contextId': …}`), not in
+      // the return value itself.
+      final double? id = _contextIdOf(context);
       if (id == null) {
-        throw LlmException('The engine did not return a context id.');
+        throw LlmException(
+          'llama.cpp did not return a context id. The model file may be '
+          'damaged or incompatible — delete it and download it again.',
+        );
       }
       _contextId = id;
       _loaded = true;
@@ -1057,6 +1083,7 @@ class LlmService {
     try {
       await _tokenSubscription?.cancel();
       _tokenSubscription = null;
+      _onLoadProgress = null;
       if (id != null) {
         await _engine?.releaseContext(id);
       }
@@ -1100,7 +1127,8 @@ class LlmService {
 
     try {
       final double? id = _contextId;
-      final Map<String, dynamic> result = await _engine!.completion(
+      final Map<Object?, dynamic> result =
+          await _engine!.completion(
         id!,
         prompt: prompt,
         stop: stop.isEmpty ? _family.stopSequences : stop,
@@ -1109,10 +1137,13 @@ class LlmService {
         topP: topP,
         minP: minP,
         penaltyRepeat: repeatPenalty,
+        penaltyLastN: AppConfig.repeatLastN,
+        nThreads: _threads,
         nPredict: maxTokens,
         seed: seed,
         emitRealtimeCompletion: onToken != null,
-      );
+      ) ??
+              const <Object?, dynamic>{};
       stopwatch.stop();
 
       final String text = _finalText(result);
@@ -1160,7 +1191,7 @@ class LlmService {
     if (!_busy || _contextId == null) return;
     _stopRequested = true;
     try {
-      await _engine?.stopCompletion(_contextId!);
+      await _engine?.stopCompletion(contextId: _contextId!);
       Log.info('Generation stopped by request');
     } catch (error) {
       Log.warn('stopCompletion threw', error);
@@ -1214,15 +1245,37 @@ class LlmService {
     }
 
     if (function == 'loadProgress') {
-      // Load progress is surfaced through the initContext progress callback;
-      // this branch only keeps the value visible in the log.
+      // llama.cpp reports this as a fraction (0..1) in this build; a percentage
+      // is normalised just in case.
+      double? fraction;
       if (payload is num) {
-        Log.debug('Model load progress: ${(payload * 100).toStringAsFixed(0)}%');
+        fraction = payload.toDouble();
+        if (fraction > 1) fraction = fraction / 100;
+      } else if (payload is Map) {
+        final Object? value = payload['progress'] ?? payload['value'];
+        if (value is num) {
+          fraction = value.toDouble();
+          if (fraction > 1) fraction = fraction / 100;
+        }
+      }
+      if (fraction != null) {
+        final void Function(double)? callback = _onLoadProgress;
+        if (callback != null) callback(fraction.clamp(0.0, 1.0));
       }
     }
   }
 
-  String _finalText(Map<String, dynamic> result) {
+  /// The context id inside the map `initContext` returns. The value arrives as a
+  /// `num` on Android and as a numeric string on some platforms, so both shapes
+  /// are accepted.
+  double? _contextIdOf(Map<Object?, dynamic>? context) {
+    final Object? raw = context?['contextId'];
+    if (raw == null) return null;
+    if (raw is num) return raw.toDouble();
+    return double.tryParse('$raw');
+  }
+
+  String _finalText(Map<Object?, dynamic> result) {
     final dynamic text = result['text'];
     if (text is String) return text;
     if (text is List) {
@@ -1266,24 +1319,38 @@ class LlmService {
       'contextId': _contextId,
     };
     try {
-      if (_loaded && _contextId != null) {
-        final Map<dynamic, dynamic> formatted = await _engine!.getFormattedChat(
-          _contextId!,
-          messages: <Map<String, String>>[
-            <String, String>{'role': 'user', 'content': 'ping'},
-          ],
-        );
-        report['templateApplied'] = formatted.isNotEmpty;
+      final Map<Object?, dynamic>? cpu = await _engine?.getCpuInfo();
+      if (cpu != null) {
+        for (final MapEntry<Object?, dynamic> entry in cpu.entries) {
+          report['cpu.${entry.key}'] = entry.value;
+        }
       }
     } catch (error) {
-      report['templateError'] = '$error';
+      report['cpuError'] = '$error';
     }
     return report;
   }
 
   /// A short decode benchmark, run on demand from Settings.
+  ///
+  /// Uses the engine's own llama.cpp `bench` when it succeeds (it reports prompt
+  /// processing and text generation separately), and falls back to timing one
+  /// real completion.
   Future<String> benchmark() async {
     if (!_loaded) throw LlmException('Load a model before benchmarking.');
+
+    final double? id = _contextId;
+    if (id != null) {
+      try {
+        final String? native = await _engine!.bench(id, pp: 8, tg: 4, pl: 2, nr: 1);
+        if (native != null && native.trim().isNotEmpty) {
+          return 'llama.cpp bench: ${native.trim()}';
+        }
+      } catch (error) {
+        Log.warn('Engine bench unavailable, timing a completion instead', error);
+      }
+    }
+
     final Stopwatch stopwatch = Stopwatch()..start();
     final LlmGenerationResult result = await generate(
       prompt: 'Write a short sentence about the weather.\n',

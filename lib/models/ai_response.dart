@@ -944,17 +944,19 @@ class AiResponse {
     }
     if (correction != null && correction.trim().length < 2) correction = null;
 
-    String? explanation = _tidy(explanation);
-    if (explanation != null && correction == null) {
+    // Read the fields first: `String? explanation = _tidy(explanation)` would
+    // reference the local being declared, not the field.
+    String? cleanExplanation = _tidy(explanation);
+    if (cleanExplanation != null && correction == null) {
       // A correction-less explanation is usually noise, unless it is about the
       // tutor's own reply.
-      if (explanation.trim().length < 6) explanation = null;
+      if (cleanExplanation.trim().length < 6) cleanExplanation = null;
     }
 
-    String? keyPhrase = _tidy(keyPhrase);
-    if (keyPhrase != null && _normalise(keyPhrase) == _normalise(reply)) {
+    String? cleanKeyPhrase = _tidy(keyPhrase);
+    if (cleanKeyPhrase != null && _normalise(cleanKeyPhrase) == _normalise(reply)) {
       // The whole sentence is not a "phrase to learn".
-      keyPhrase = null;
+      cleanKeyPhrase = null;
     }
 
     return AiResponse(
@@ -964,9 +966,9 @@ class AiResponse {
           ? null
           : replyRomanization!.trim(),
       grammarCorrection: correction?.trim(),
-      explanation: explanation,
+      explanation: cleanExplanation,
       fluencyScore: fluencyScore,
-      keyPhrase: keyPhrase,
+      keyPhrase: cleanKeyPhrase,
       keyPhraseTranslation: keyPhraseTranslation?.trim(),
       mode: mode,
       latency: latency,

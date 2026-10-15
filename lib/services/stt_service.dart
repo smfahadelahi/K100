@@ -48,8 +48,13 @@ class SttException implements Exception {
   final SttFailure failure;
   final String? detail;
 
+  /// Learner-facing text: the failure's own message, plus the engine's detail
+  /// when the plugin supplied one.
+  String get message =>
+      detail == null ? failure.message : '${failure.message} ($detail)';
+
   @override
-  String toString() => detail == null ? failure.message : '${failure.message} ($detail)';
+  String toString() => message;
 }
 
 /// Thin, defensive wrapper around `speech_to_text`.
