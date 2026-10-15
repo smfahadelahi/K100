@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirrors AppColors.background / AppColors.primary in lib/core/theme.dart.
+         Kept in sync by hand: the values are referenced before Dart starts. -->
+    <color name="k100_background">#05070F</color>
+    <color name="k100_surface">#101728</color>
+    <color name="k100_primary">#5B8CFF</color>
+    <color name="ic_launcher_background">#05070F</color>
+</resources>

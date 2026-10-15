@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  K100 — offline AI language speaking tutor.
+
+  Permission philosophy: the app records the microphone, plays audio and downloads
+  one model file. It does not want anything else, and it declares nothing else.
+  There is no INTERNET use beyond the Hugging Face download; inference, speech
+  recognition (when the on-device engine is present) and text-to-speech all run
+  locally, so the app keeps working in aeroplane mode once a model is installed.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Microphone: the entire point of the app. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- The GGUF download from Hugging Face. The only network traffic K100 makes. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Keep the CPU awake during a long model download / short inference burst. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Optional: surface a foreground notice while a 1.1 GB download is running. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- The engine binds to its own service in a separate process. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!-- Bluetooth headsets are a common way to practise speaking. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+    <!-- The app is useless without a microphone, but it must stay installable on
+         tablets whose only recogniser is the on-device one, so no
+         <uses-feature android:required="true"> for the mic beyond the default. -->
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+    <!-- 64-bit ARM only: the quantised engine is compiled for arm64-v8a. -->
+    <uses-feature
+        android:name="android.hardware.ram.low"
+        android:required="false" />
+
+    <!--
+      Android 11+ package visibility. Without these declarations, `SpeechRecognizer`
+      and the TTS engine appear to be missing and `flutter_tts` silently returns
+      `-1` from `setLanguage`, which looks exactly like a broken app.
+    -->
+    <queries>
+        <!-- Speech recognition -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <!-- Text-to-speech -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <!-- Ringtones / notification sounds used for the mic cue -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
+    <application
+        android:name="${applicationName}"
+        android:label="K100"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:supportsRtl="true"
+        android:largeHeap="true"
+        android:hardwareAccelerated="true"
+        android:enableOnBackInvokedCallback="true"
+        android:extractNativeLibs="true"
+        android:usesCleartextTraffic="false"
+        tools:targetApi="34">
+
+        <!-- Keeps the process alive while the ~1.1 GB model downloads or verifies. -->
+        <meta-data
+            android:name="flutter.embedding.android.EmbeddingUseImpeller"
+            android:value="true" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode|navigation|uiMode"
+            android:windowSoftInputMode="adjustResize"
+            android:resizeableActivity="true"
+            android:showWhenLocked="false"
+            android:excludeFromRecents="false"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity">
+
+            <!-- The splash theme exists only while Flutter boots; once the first
+                 frame is drawn the normal theme takes over. -->
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Flutter 3.x plugin registration is handled by the generated
+             GeneratedPluginRegistrant; no manual entries are needed. -->
+    </application>
+</manifest>

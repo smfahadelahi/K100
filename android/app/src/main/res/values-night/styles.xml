@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- K100 is dark-only, so the night variants are identical to the day ones.
+         They exist because the Android framework looks them up by qualifier; a
+         missing night style falls back to the platform default and produces a
+         white flash on the first frame. -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:windowFullscreen">false</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">#05070F</item>
+        <item name="android:navigationBarColor">#05070F</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+    </style>
+
+    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">?android:colorBackground</item>
+        <item name="android:statusBarColor">#05070F</item>
+        <item name="android:navigationBarColor">#05070F</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+</resources>

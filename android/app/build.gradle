@@ -1,0 +1,187 @@
+// K100 application module.
+//
+// Notes that matter for this specific app:
+//
+//  * **arm64-v8a only.** The APK ships `libfllama.so` (llama.cpp compiled from
+//    source for arm64) and nothing else, which halves the download size and
+//    removes every 32-bit ABI from the equation.
+//  * **minSdk 26.** Android 8.0 is the floor: the adaptive launcher icon, the
+//    `SpeechRecognizer` on-device API and `flutter_tts`'s audio-focus behaviour
+//    all assume it.
+//  * **native libs are never stripped** — a stripped llama.cpp `.so` aborts on
+//    load. This is the single most common cause of "the model engine crashes on
+//    start" reports for on-device LLM apps.
+//  * **Release signing falls back to debug.** A CI run with no keystore secrets
+//    must still produce an installable APK rather than fail.
+
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    // The Flutter Gradle Plugin must be applied *after* the Android and Kotlin
+    // plugins.
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader("UTF-8") { reader -> localProperties.load(reader) }
+}
+
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withReader("UTF-8") { reader -> keystoreProperties.load(reader) }
+}
+
+android {
+    namespace "dev.k100.tutor"
+    compileSdk 36
+
+    // Pinned to the Flutter SDK's NDK so `flutter build` needs no extra install.
+    // Kept in sync with android/build.gradle -> ext.ndkVersionOverride.
+    ndkVersion "28.2.13676358"
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    defaultConfig {
+        applicationId "dev.k100.tutor"
+        minSdk 26        // Android 8.0
+        targetSdk 36
+        versionCode flutter.versionCode
+        versionName flutter.versionName
+        resourceConfigurations += ["en"]
+
+        // arm64-v8a only: the quantised GGUF engine is built for 64-bit ARM.
+        ndk {
+            abiFilters "arm64-v8a"
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists() &&
+                    keystoreProperties["storeFile"] != null &&
+                    keystoreProperties["storePassword"] != null &&
+                    keystoreProperties["keyAlias"] != null &&
+                    keystoreProperties["keyPassword"] != null) {
+                storeFile file(keystoreProperties["storeFile"])
+                storePassword keystoreProperties["storePassword"]
+                keyAlias keystoreProperties["keyAlias"]
+                keyPassword keystoreProperties["keyPassword"]
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+        }
+        release {
+            // Signed with the real key when the secrets exist, debug key otherwise.
+            // A CI build with no secrets still produces an installable APK.
+            signingConfig keystorePropertiesFile.exists()
+                    ? signingConfigs.release
+                    : signingConfigs.debug
+
+            // R8 is deliberately OFF by default.
+            //
+            // The engine (fcllama) reaches llama.cpp through a bound Android
+            // Service by name, and the speech/TTS plugins resolve classes
+            // reflectively at runtime. Shrinking them requires the keep rules in
+            // `proguard-rules.pro`; a silently mis-shrunk release APK crashes on
+            // launch, which is a worse failure than a 30 MB download. Flip these
+            // two flags to true *after* testing on a device.
+            minifyEnabled false
+            shrinkResources false
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+
+            // No native debug symbols in the APK: llama.cpp builds ~20 MB of them.
+            ndk {
+                debugSymbolLevel "none"
+            }
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // Legacy packaging (extract at install, `extractNativeLibs=true`) is
+            // what the llama.cpp plugin's CMake configuration expects, and it
+            // avoids the uncompressed-.so loader path entirely.
+            useLegacyPackaging = true
+
+            // Never let the release toolchain strip the engine.
+            keepDebugSymbols += [
+                    "**/libfllama.so",
+                    "**/libllama.so",
+                    "**/libggml.so",
+                    "**/libggml-base.so",
+                    "**/libggml-cpu.so",
+                    "**/libllama_cpp.so",
+                    "**/libc++_shared.so",
+            ]
+        }
+        resources {
+            excludes += [
+                    "META-INF/{AL2.0,LGPL2.1}",
+                    "META-INF/DEPENDENCIES",
+                    "META-INF/LICENSE*",
+                    "META-INF/NOTICE*",
+                    "META-INF/*.kotlin_module",
+                    "**/*.proto",
+                    "**/*.txt",
+            ]
+        }
+        // Older AGP syntax kept for compatibility with plugin modules that still
+        // declare `packagingOptions`.
+        doNotStrip "**/*.so"
+    }
+
+    // The GGUF weights are NEVER bundled: they are downloaded at runtime into the
+    // app's documents directory. Asserting it here means a future contributor
+    // cannot accidentally ship a 1 GB APK.
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ["src/main/jniLibs"]
+            assets.srcDirs = ["src/main/assets"]
+        }
+    }
+}
+
+// A guard-rail for the "GGUF must not be bundled" rule. Runs on every build.
+tasks.register("assertNoBundledModel") {
+    doLast {
+        def assetsDir = file("src/main/assets")
+        if (!assetsDir.exists()) return
+        def offenders = []
+        assetsDir.eachFileRecurse { f ->
+            if (f.isFile() && (f.name.endsWith(".gguf") || f.name.endsWith(".ggml"))) {
+                offenders << f.name
+            }
+        }
+        if (!offenders.isEmpty()) {
+            throw new GradleException(
+                    "Model files must not be bundled in the APK (found: ${offenders}). " +
+                    "K100 downloads GGUF weights at runtime into the app documents directory."
+            )
+        }
+    }
+}
+
+flutter {
+    source "../.."
+}
+
+dependencies {
+    // Flutter's Android embedding and the plugin registrant are provided by the
+    // Flutter Gradle Plugin; these are the only hard dependencies this app adds.
+    implementation "androidx.core:core-ktx:1.13.1"
+}

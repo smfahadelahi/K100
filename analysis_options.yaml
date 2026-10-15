@@ -1,0 +1,73 @@
+# Static analysis for K100.
+#
+# `flutter analyze` runs with these rules in CI (.github/workflows/build-release-apk.yml).
+# Anything reported as an *error* fails the build; warnings/infos are printed but
+# do not block the APK.
+
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    # The three `strict-*` flags are deliberately NOT enabled here. They turn
+    # every implicit `dynamic` downcast (of which a JSON-handling codebase has
+    # thousands) into a hard error, and enabling them without a clean local run
+    # would mean a red `flutter analyze` on a fresh clone. Turn them on one at a
+    # time, with the code fixed as you go.
+  errors:
+    # `flutter analyze` fails on errors and warnings; lints (which are info-level
+    # by default) are printed but tolerated via `--no-fatal-infos` in CI.
+    #
+    # The severity overrides that used to live here (`deprecated_member_use`,
+    # `use_build_context_synchronously`) were removed on purpose: promoting a lint
+    # to `warning` makes a Flutter SDK bump fail the release build over style, and
+    # a build that cannot be released is worse than a lint nobody reads.
+    todo: ignore
+  exclude:
+    - "**/*.g.dart"
+    - "**/generated/**"
+    - "build/**"
+
+linter:
+  rules:
+    - always_declare_return_types
+    - always_use_package_imports
+    - annotate_overrides
+    - avoid_empty_else
+    - avoid_relative_lib_imports
+    - avoid_returning_null_for_void
+    - avoid_slow_async_io
+    - avoid_types_as_parameter_names
+    - await_only_futures
+    - camel_case_types
+    - cancel_subscriptions
+    - close_sinks
+    - collection_methods_unrelated_type
+    - comment_references
+    - control_flow_in_finally
+    - directives_ordering
+    - empty_statements
+    - exhaustive_cases
+    - hash_and_equals
+    - implicit_call_tearoffs
+    - join_return_with_assignment
+    - literal_only_boolean_expressions
+    - no_adjacent_strings_in_list
+    - no_duplicate_case_values
+    - non_constant_identifier_names
+    - null_check_on_nullable_type_parameter
+    - only_throw_errors
+    - prefer_final_locals
+    - prefer_is_empty
+    - prefer_is_not_empty
+    - prefer_single_quotes
+    - sort_child_properties_last
+    - test_types_in_equals
+    - throw_in_finally
+    - unawaited_futures
+    - unnecessary_await_in_return
+    - unnecessary_brace_in_string_interps
+    - unnecessary_parenthesis
+    - unnecessary_statements
+    - unrelated_type_equality_checks
+    - use_string_buffers
+    - valid_regexps

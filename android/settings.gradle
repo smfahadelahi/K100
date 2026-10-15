@@ -1,0 +1,42 @@
+// K100 — Gradle settings.
+//
+// Kept in **Groovy** on purpose. The Kotlin DSL is the newer default, but every
+// third-party Flutter plugin in this project (fcllama in particular) ships a
+// classic Groovy `build.gradle`, and mixing DSLs in one build makes dependency
+// resolution errors much harder to read.
+//
+// Version matrix (must stay inside Flutter's supported window):
+//   Gradle 8.14.3   (Flutter 3.35+ requires >= 8.14.0)
+//   AGP    8.11.1   (Flutter 3.35+ requires >= 8.11.1)
+//   KGP    2.2.20   (Flutter 3.35+ requires >= 2.2.20)
+//   Java   17
+
+pluginManagement {
+    def flutterSdkPath = {
+        def properties = new Properties()
+        file("local.properties").withInputStream { properties.load(it) }
+        def flutterSdkPath = properties.getProperty("flutter.sdk")
+        assert flutterSdkPath != null, "flutter.sdk not set in local.properties"
+        return flutterSdkPath
+    }()
+
+    includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
+
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+plugins {
+    id "dev.flutter.flutter-plugin-loader" version "1.0.0"
+    id "com.android.application" version "8.11.1" apply false
+    id "org.jetbrains.kotlin.android" version "2.2.20" apply false
+}
+
+include ":app"
+
+// The llama.cpp engine plugin (fcllama) compiles its C++ sources with its own
+// CMake build during `:fcllama:assembleRelease`; it is declared by the Flutter
+// tool in .flutter-plugins-dependencies and therefore needs no manual include.
