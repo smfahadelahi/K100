@@ -707,6 +707,12 @@ class ModelDownloader {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.receiveTimeout:
         return 'The connection timed out. Check your network and tap resume.';
+      // dio adds members to this enum between minor releases
+      // (`transformTimeout` arrived in 5.11). Exhaustiveness over a *package*
+      // enum is a compile error waiting to happen, so the switch is closed with
+      // a default and the specific cases stay above it.
+      default:
+        return 'The download failed: ${error.message ?? error.type.name}';
       case DioExceptionType.sendTimeout:
         return 'Upload timed out — unusual for a download. Try again.';
       case DioExceptionType.badResponse:

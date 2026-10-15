@@ -1,0 +1,145 @@
+name: Analyze & test
+
+# The fast feedback loop. Runs on every branch (including the ones Arena sessions
+# push to) so a compile error is caught in ~2 minutes instead of after a
+# 10-minute release build with a native llama.cpp compile.
+#
+# Deliberately installs no Android SDK, no NDK and no Gradle: `flutter analyze`
+# and `flutter test` are pure Dart. Every distinct error is re-emitted as a
+# GitHub annotation, so a failure is diagnosable without the raw job log.
+
+on:
+  push:
+    branches-ignore: []
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: analyze-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.35.7'
+
+jobs:
+  analyze:
+    name: Analyze and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Flutter SDK and pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            /opt/flutter
+          key: flutter-analyze-${{ env.FLUTTER_VERSION }}-${{ hashFiles('pubspec.yaml') }}
+          restore-keys: |
+            flutter-analyze-${{ env.FLUTTER_VERSION }}-
+            flutter-stable-${{ env.FLUTTER_VERSION }}-
+
+      - name: Install Flutter ${{ env.FLUTTER_VERSION }}
+        run: |
+          set -euo pipefail
+          if [ ! -d /opt/flutter/.git ]; then
+            git clone --depth 1 --branch "${FLUTTER_VERSION}" \
+              https://github.com/flutter/flutter.git /opt/flutter
+          fi
+          echo "/opt/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Resolve dependencies
+        run: |
+          set -euo pipefail
+          export PATH="/opt/flutter/bin:$PATH"
+          flutter --version
+          if ! flutter pub get > /tmp/pub-get.log 2>&1; then
+            echo "::error title=pub get failed::$(tail -c 600 /tmp/pub-get.log | tr '\n' ' ' | sed 's/%/%25/g')"
+            exit 1
+          fi
+          awk '/^  [a-z_]+:$/ {name=$1} /version: "/ {if (name != "") {print name, $2; name=""}}' pubspec.lock \
+            | head -40 > /tmp/lock.txt || true
+          cat /tmp/lock.txt
+
+      - name: Show resolved package versions
+        run: |
+          python3 - <<'PY'
+          import pathlib, re, sys
+          lock = pathlib.Path('pubspec.lock')
+          if not lock.exists():
+              print('::warning title=pubspec.lock::pub got did not write a lock file')
+              sys.exit(0)
+          wanted = {'flutter_riverpod', 'fcllama', 'dio', 'speech_to_text',
+                    'flutter_tts', 'sqflite', 'shared_preferences', 'path_provider',
+                    'crypto', 'path'}
+          current = None
+          for line in lock.read_text().splitlines():
+              m = re.match(r'^  (\w+):', line)
+              if m:
+                  current = m.group(1)
+              m = re.match(r'^    version: "?([^"]+)"?', line)
+              if m and current in wanted:
+                  print(f'::notice title=Resolved::{current} {m.group(1)}')
+          PY
+
+      - name: Static analysis
+        run: |
+          set -euo pipefail
+          export PATH="/opt/flutter/bin:$PATH"
+          set +e
+          flutter analyze > /tmp/analyze.log 2>&1
+          status=$?
+          set -e
+          tail -5 /tmp/analyze.log
+
+          grep -E '^ +error •' /tmp/analyze.log \
+            | sed -E 's/^ +//' \
+            | awk -F' • ' '{ msg=$1; for (i=2;i<NF;i++) msg=msg " • " $i; print msg }' \
+            | sort | uniq -c | sort -rn > /tmp/distinct.txt || true
+
+          total="$(grep -cE '^ +error •' /tmp/analyze.log || true)"
+          distinct="$(wc -l < /tmp/distinct.txt | tr -d ' ')"
+          echo "::notice title=Analyze summary::$total errors, $distinct distinct"
+
+          n=0
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            n=$((n + 1))
+            [ "$n" -gt 25 ] && break
+            echo "::error title=Analyze::${line//%/%25}"
+          done < /tmp/distinct.txt
+
+          if [ "$status" -ne 0 ]; then exit 1; fi
+
+      - name: Unit tests
+        run: |
+          set -euo pipefail
+          export PATH="/opt/flutter/bin:$PATH"
+          set +e
+          flutter test --reporter expanded > /tmp/test.log 2>&1
+          status=$?
+          set -e
+          tail -25 /tmp/test.log
+          if [ "$status" -ne 0 ]; then
+            echo "::error title=Tests failed::$(tail -c 900 /tmp/test.log | tr '\n' ' ' | sed 's/%/%25/g' | cut -c1-8000)"
+            exit "$status"
+          fi
+          echo "::notice title=Tests::$({ grep -oE '\+[0-9]+' /tmp/test.log | tail -1; } passed)"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: analyze-log
+          path: |
+            /tmp/analyze.log
+            /tmp/test.log
+            /tmp/distinct.txt
+            /tmp/lock.txt
+          if-no-files-found: ignore
+          retention-days: 14

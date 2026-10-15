@@ -73,7 +73,10 @@ Future<void> main() async {
 
   runApp(
     ProviderScope(
-      overrides: <Override>[
+      // No explicit type argument here on purpose: the element type of this list
+      // is Riverpod's override class, whose name is not part of the API the app
+      // needs to spell out. Inference is exact, and it survives a Riverpod bump.
+      overrides: [
         // The one override the whole app depends on: without it, every provider
         // that reads a stored setting would have to be asynchronous.
         sharedPreferencesProvider.overrideWithValue(preferences),
