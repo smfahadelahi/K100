@@ -87,19 +87,6 @@ android {
         jvmTarget = "17"
     }
 
-    // llama.cpp's .so keeps its symbols; the rest of the native libraries are
-    // stripped as usual.
-    packaging {
-        jniLibs {
-            keepDebugSymbols += [
-                    "**/libfllama.so",
-                    "**/libfcllama.so",
-                    "**/libllama.so",
-                    "**/libggml*.so",
-            ]
-        }
-    }
-
     defaultConfig {
         applicationId "dev.k100.tutor"
         minSdk 26        // Android 8.0
@@ -175,13 +162,16 @@ android {
             // avoids the uncompressed-.so loader path entirely.
             useLegacyPackaging = true
 
-            // Never let the release toolchain strip the engine.
+            // Never let the release toolchain strip the engine: a native crash
+            // inside llama.cpp is the likeliest failure this app will ever have
+            // to diagnose, and an unsymbolicated tombstone makes that
+            // impossible. The wildcard covers whichever ggml back-ends the
+            // plugin's CMake checkout happens to produce.
             keepDebugSymbols += [
                     "**/libfllama.so",
+                    "**/libfcllama.so",
                     "**/libllama.so",
-                    "**/libggml.so",
-                    "**/libggml-base.so",
-                    "**/libggml-cpu.so",
+                    "**/libggml*.so",
                     "**/libllama_cpp.so",
                     "**/libc++_shared.so",
             ]
