@@ -298,11 +298,52 @@ jobs:
           EOF
           cat android/local.properties
 
-      - name: Enforce arm64-v8a only and no bundled weights
+      - name: Repository sanity (no ignored source, no bundled weights)
         run: |
           set -euo pipefail
-          grep -q 'abiFilters "arm64-v8a"' android/app/build.gradle \
-            || { echo "::error title=ABI filter::abiFilters must be arm64-v8a only"; exit 1; }
+
+          # Git says nothing when an ignore rule swallows a *source* directory.
+          # That is exactly how the entire `lib/models/` layer once failed to
+          # reach this build, which surfaced only as 694 analyzer errors. Both
+          # directions are checked here.
+          ignored="$(git ls-files --others --ignored --exclude-standard -- 'lib/**' | head -20 || true)"
+          if [ -n "$ignored" ]; then
+            echo "::error title=Ignored source::Files under lib/ are excluded by .gitignore: $(echo "$ignored" | tr '\n' ' ')"
+            exit 1
+          fi
+          untracked="$(git ls-files --others --exclude-standard -- 'lib/**' 'test/**' | head -20 || true)"
+          if [ -n "$untracked" ]; then
+            echo "::error title=Untracked source::Source files are not committed: $(echo "$untracked" | tr '\n' ' ')"
+            exit 1
+          fi
+
+          missing=""
+          for f in lib/main.dart \
+                   lib/core/constants.dart lib/core/theme.dart \
+                   lib/models/ai_response.dart lib/models/tutor_state.dart \
+                   lib/models/chat_message.dart lib/models/learner_profile.dart \
+                   lib/services/voice_pipeline_controller.dart \
+                   android/app/src/main/AndroidManifest.xml \
+                   pubspec.yaml; do
+            git ls-files --error-unmatch "$f" > /dev/null 2>&1 || missing="$missing $f"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error title=Missing source::Not tracked by git:$missing"
+            exit 1
+          fi
+
+          count="$(git ls-files 'lib/**/*.dart' 'lib/*.dart' | wc -l)"
+          echo "$count Dart files under lib/ are tracked."
+          if [ "$count" -lt 30 ]; then
+            echo "::error title=Thin checkout::Only $count Dart files are tracked; the lib/ tree looks incomplete."
+            exit 1
+          fi
+
+          # The ABI restriction: the Flutter tool derives it from this flag, and
+          # the APK-content check below proves the result.
+          grep -q -- '--target-platform android-arm64' .github/workflows/build-release-apk.yml \
+            || { echo "::error title=ABI::The build must target android-arm64."; exit 1; }
+
           python3 - <<'PY'
           import pathlib, sys
           bad = [str(p) for p in pathlib.Path('.').rglob('*')

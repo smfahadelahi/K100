@@ -59,10 +59,19 @@ android {
         versionName flutter.versionName
         resourceConfigurations += ["en"]
 
-        // arm64-v8a only: the quantised GGUF engine is built for 64-bit ARM.
-        ndk {
-            abiFilters "arm64-v8a"
-        }
+        // NOTE: there is deliberately no `ndk { abiFilters ... }` here.
+        //
+        // The Flutter Gradle plugin adds the filter itself from
+        // `--target-platform` (`FlutterPlugin.kt`: it clears any user-specified
+        // abiFilters and adds the one it computed), and it *rejects the build*
+        // outright when abiFilters co-exist with `--split-per-abi`:
+        //   "Conflicting configuration : 'arm64-v8a' in ndk abiFilters cannot be
+        //    present when splits abi filters are set"
+        // Flutter's own comment says abiFilters "cannot be added to templates"
+        // for exactly this reason. The arm64-only guarantee is enforced instead
+        // by the build invocation (`--target-platform android-arm64`) and by the
+        // APK-content check in CI, which fails on any lib/ entry that is not
+        // lib/arm64-v8a/.
     }
 
     signingConfigs {
