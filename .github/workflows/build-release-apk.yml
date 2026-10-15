@@ -130,15 +130,24 @@ jobs:
           install "ndk;${ANDROID_PLUGIN_NDK_VERSION}" || \
             echo "::warning title=Plugin NDK unavailable::$ANDROID_PLUGIN_NDK_VERSION is not in the SDK repository; relying on the pinned override in android/build.gradle."
 
-          # CMake: the plugin asks for a 3.31 line, AGP's default is 3.22. Try in
-          # order so an unlisted package cannot fail the run.
+          # CMake: the llama.cpp plugin asks for a 3.31 line, AGP's own default
+          # is 3.22. Install *all* plausible versions — AGP fails hard when a
+          # module pins an exact version that is absent, and the extras cost a few
+          # MB each.
+          installed_cmake=0
           for pkg in "cmake;${CMAKE_VERSION}" "cmake;3.31.0" "cmake;3.22.1"; do
             if "$SDKMANAGER" --install "$pkg" > /tmp/sdk-cmake.log 2>&1; then
               echo "installed $pkg"
-              break
+              installed_cmake=$((installed_cmake + 1))
+            else
+              echo "::warning title=CMake unavailable::$pkg is not in the SDK repository."
             fi
-            echo "::warning title=CMake unavailable::$pkg is not in the SDK repository."
           done
+          if [ "$installed_cmake" -eq 0 ]; then
+            echo "::error title=No CMake::No CMake package could be installed; the native engine cannot build."
+            exit 1
+          fi
+          ls "$SDK_ROOT/cmake" || true
 
           echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$SDK_ROOT/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
@@ -203,19 +212,38 @@ jobs:
           dart format --output=none --set-exit-if-changed lib || true
 
       - name: Static analysis
-        # Informational on purpose. The release build below is the authoritative
-        # compile check — it fails on any real error — while this step exists to
-        # surface lints without letting a style nit block a release.
+        # Informational on purpose — the release build below is the authoritative
+        # compile check — but a failure is reported as an annotation so it cannot
+        # hide: `::warning::` lines are readable through the API even when the raw
+        # job log is not.
         continue-on-error: true
         run: |
           export PATH="/opt/flutter/bin:$PATH"
-          flutter analyze --no-fatal-infos 2>&1 | tail -40
+          set +e
+          flutter analyze --no-fatal-infos > /tmp/analyze.log 2>&1
+          status=$?
+          tail -30 /tmp/analyze.log
+          if [ "$status" -ne 0 ]; then
+            echo "::warning title=flutter analyze failed::$(grep -cE ' (error|warning) ' /tmp/analyze.log) issues; first: $(grep -m1 -E ' (error|warning) ' /tmp/analyze.log | cut -c1-200 | sed 's/%/%25/g')"
+          else
+            echo "::notice title=flutter analyze::clean"
+          fi
+          exit 0
 
       - name: Unit tests
         continue-on-error: true
         run: |
           export PATH="/opt/flutter/bin:$PATH"
-          flutter test --reporter expanded 2>&1 | tail -40
+          set +e
+          flutter test --reporter expanded > /tmp/test.log 2>&1
+          status=$?
+          tail -30 /tmp/test.log
+          if [ "$status" -ne 0 ]; then
+            echo "::warning title=Unit tests failed::$(tail -c 400 /tmp/test.log | tr '\n' ' ' | sed 's/%/%25/g')"
+          else
+            echo "::notice title=Unit tests::$({ grep -oE '\+[0-9]+' /tmp/test.log | tail -1; } tests passed)"
+          fi
+          exit 0
 
       - name: Prepare signing keystore
         id: keystore
@@ -369,6 +397,8 @@ jobs:
           path: |
             build.log
             gradle-errors.txt
+            /tmp/analyze.log
+            /tmp/test.log
             /tmp/flutter.version
             /tmp/sdk.version
           if-no-files-found: ignore
