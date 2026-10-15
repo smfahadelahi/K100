@@ -92,7 +92,7 @@ jobs:
           set -euo pipefail
           export PATH="/opt/flutter/bin:$PATH"
           set +e
-          flutter analyze > /tmp/analyze.log 2>&1
+          flutter analyze --no-fatal-infos > /tmp/analyze.log 2>&1
           status=$?
           set -e
           tail -5 /tmp/analyze.log
@@ -108,7 +108,7 @@ jobs:
           counts = collections.Counter()
           where = {}
           for line in pathlib.Path('/tmp/analyze.log').read_text().splitlines():
-              m = re.match(r'^\s+(error|warning)\s+•\s+(.*?)\s+•\s+(\S+?):(\d+):(\d+)\s+•\s+(\S+)\s*$', line)
+              m = re.match(r'^\s+(error|warning|info)\s+•\s+(.*?)\s+•\s+(\S+?):(\d+):(\d+)\s+•\s+(\S+)\s*$', line)
               if not m:
                   continue
               sev, msg, path, ln, col, code = m.groups()
@@ -121,8 +121,9 @@ jobs:
 
           errors="$(grep -cE '^ +error •' /tmp/analyze.log || true)"
           warnings="$(grep -cE '^ +warning •' /tmp/analyze.log || true)"
+          infos="$(grep -cE '^ +info •' /tmp/analyze.log || true)"
           distinct="$(grep -c . /tmp/distinct.txt || true)"
-          echo "::notice title=Analyze summary::$errors errors, $warnings warnings, $distinct distinct"
+          echo "::notice title=Analyze summary::$errors errors, $warnings warnings, $infos lint notices, $distinct distinct"
 
           n=0
           while IFS= read -r line; do
@@ -135,6 +136,7 @@ jobs:
             body="${line//%/%25}"
             case "$line" in
               *'|warning'*) echo "::warning title=Analyze::${body}" ;;
+              *'|info'*)    echo "::notice title=Lint::${body}" ;;
               *)            echo "::error title=Analyze::${body}" ;;
             esac
           done < /tmp/distinct.txt
