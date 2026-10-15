@@ -193,7 +193,7 @@ double quotes, grammar_correction and explanation may be null.''';
         }
         mergedTurns[0] = PromptTurn(
           role: 'user',
-          content: '${system}\n\n---\n\n${mergedTurns.first.content}',
+          content: '$system\n\n---\n\n${mergedTurns.first.content}',
         );
         for (final PromptTurn turn in mergedTurns) {
           out.write('<start_of_turn>${turn.isUser ? 'user' : 'model'}\n'

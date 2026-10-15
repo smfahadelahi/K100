@@ -1,13 +1,12 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:path/path.dart' as p;
-import 'package:sqflite/sqflite.dart';
-
 import 'package:k100/core/constants.dart';
 import 'package:k100/core/logger.dart';
 import 'package:k100/models/chat_message.dart';
 import 'package:k100/models/learner_profile.dart';
+import 'package:path/path.dart' as p;
+import 'package:sqflite/sqflite.dart';
 
 /// Local SQLite store: sessions, messages, the vocabulary bank and daily stats.
 ///

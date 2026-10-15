@@ -8,11 +8,10 @@ import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:fcllama/fllama.dart';
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
-
 import 'package:k100/core/constants.dart';
 import 'package:k100/core/logger.dart';
 import 'package:k100/models/model_catalog.dart';
+import 'package:path_provider/path_provider.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  DOWNLOAD LAYER
@@ -221,7 +220,7 @@ class ModelDownloader {
   Future<Directory> modelsDirectory() async {
     final Directory documents = await getApplicationDocumentsDirectory();
     final Directory models = Directory('${documents.path}/${AppConfig.modelDirectoryName}');
-    if (!await models.exists()) {
+    if (!models.existsSync()) {
       await models.create(recursive: true);
     }
     return models;
@@ -264,13 +263,13 @@ class ModelDownloader {
   }
 
   Future<bool> isInstalled(ModelEntry entry) async =>
-      File(await targetPath(entry)).exists();
+      File(await targetPath(entry)).existsSync();
 
   Future<int> downloadedBytes(ModelEntry entry) async {
     final File file = File(await targetPath(entry));
-    if (await file.exists()) return file.length();
+    if (file.existsSync()) return file.length();
     final File part = File('${file.path}.part');
-    if (await part.exists()) return part.length();
+    if (part.existsSync()) return part.length();
     return 0;
   }
 
@@ -280,7 +279,7 @@ class ModelDownloader {
     int total = 0;
     await for (final FileSystemEntity entity in models.list()) {
       if (entity is File) {
-        total += await entity.length();
+        total += entity.lengthSync();
       }
     }
     return total;
@@ -324,7 +323,7 @@ class ModelDownloader {
     final String path = await targetPath(entry);
     for (final String candidate in <String>[path, '$path.part']) {
       final File file = File(candidate);
-      if (await file.exists()) {
+      if (file.existsSync()) {
         await file.delete();
         Log.info('Deleted ${candidate.split('/').last}');
       }
@@ -362,8 +361,8 @@ class ModelDownloader {
     final File partFile = File(partPath);
 
     // Already complete? Nothing to do.
-    if (await targetFile.exists()) {
-      final int length = await targetFile.length();
+    if (targetFile.existsSync()) {
+      final int length = targetFile.lengthSync();
       if (length > 0) {
         _emit(
           DownloadProgress(
@@ -408,7 +407,7 @@ class ModelDownloader {
     );
 
     // 2. Download with resume, in chunks, with retries.
-    int received = await partFile.exists() ? await partFile.length() : 0;
+    int received = partFile.existsSync() ? partFile.lengthSync() : 0;
 
     for (int attempt = 1; attempt <= AppConfig.downloadMaxRetries; attempt++) {
       if (_cancelled) return _finishCancelled(partFile);
@@ -440,7 +439,7 @@ class ModelDownloader {
               'received). Pause and resume to continue from where it stopped.');
           return null;
         }
-        received = await partFile.exists() ? await partFile.length() : 0;
+        received = partFile.existsSync() ? partFile.lengthSync() : 0;
         await Future<void>.delayed(
           AppConfig.downloadRetryBackoff * attempt,
         );
@@ -451,7 +450,7 @@ class ModelDownloader {
           _emitFailed(entry.id, _friendlyDioMessage(error));
           return null;
         }
-        received = await partFile.exists() ? await partFile.length() : 0;
+        received = partFile.existsSync() ? partFile.lengthSync() : 0;
         await Future<void>.delayed(AppConfig.downloadRetryBackoff * attempt);
       } catch (error, stack) {
         Log.error('Unexpected download failure', error, stack);
@@ -461,12 +460,12 @@ class ModelDownloader {
     }
 
     // 3. Move the finished file into place.
-    if (!await partFile.exists()) {
+    if (!partFile.existsSync()) {
       _emitFailed(entry.id, 'The downloaded file disappeared.');
       return null;
     }
 
-    final int finalSize = await partFile.length();
+    final int finalSize = partFile.lengthSync();
     if (expectedTotal > 0 && finalSize < expectedTotal) {
       _emitFailed(
         entry.id,
@@ -476,7 +475,7 @@ class ModelDownloader {
     }
 
     try {
-      if (await targetFile.exists()) await targetFile.delete();
+      if (targetFile.existsSync()) await targetFile.delete();
       await partFile.rename(target);
     } on FileSystemException catch (error) {
       Log.error('Could not finalise the download', error);
@@ -595,7 +594,7 @@ class ModelDownloader {
     int offset = startOffset;
     if (startOffset > 0 && response.statusCode == 200) {
       Log.warn('Server ignored the Range header — restarting the download');
-      if (await file.exists()) await file.delete();
+      if (file.existsSync()) await file.delete();
       offset = 0;
     }
 
@@ -676,7 +675,7 @@ class ModelDownloader {
     }
 
     // Neither a range nor a length: at least confirm the file grew.
-    final int finalLength = await file.length();
+    final int finalLength = file.lengthSync();
     if (total > 0 && finalLength < total) {
       throw _IncompleteDownloadException(finalLength, total);
     }
@@ -971,10 +970,10 @@ class LlmService {
     await unload();
 
     final File file = File(path);
-    if (!await file.exists()) {
+    if (!file.existsSync()) {
       throw LlmException('Model file not found at $path');
     }
-    final int sizeBytes = await file.length();
+    final int sizeBytes = file.lengthSync();
     if (sizeBytes < 4 * 1024 * 1024) {
       throw LlmException('The model file is only ${formatBytes(sizeBytes)} — '
           'that is not a GGUF model. Download it again.');
@@ -1036,7 +1035,7 @@ class LlmService {
       _loaded = true;
       _loadedPath = path;
       onProgress?.call(1);
-      Log.info('Model loaded (context $_contextId, ${_threads} threads)');
+      Log.info('Model loaded (context $_contextId, $_threads threads)');
     } on LlmException {
       rethrow;
     } catch (error, stack) {

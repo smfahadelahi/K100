@@ -4,8 +4,6 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
 import 'package:k100/core/constants.dart';
 import 'package:k100/core/logger.dart';
 import 'package:k100/core/theme.dart';
@@ -13,6 +11,7 @@ import 'package:k100/models/learner_profile.dart';
 import 'package:k100/providers/app_providers.dart';
 import 'package:k100/ui/screens/home_screen.dart';
 import 'package:k100/ui/screens/setup_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// K100 — an offline AI language speaking tutor.
 ///

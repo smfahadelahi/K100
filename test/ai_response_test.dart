@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:k100/models/ai_response.dart';
 
 /// The parser is the single most important piece of defensive code in K100: a

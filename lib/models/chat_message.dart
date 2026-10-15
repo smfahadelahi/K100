@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-
 import 'package:k100/models/ai_response.dart';
 
 /// Who produced a message. Stored in SQLite as the enum name, so the column is

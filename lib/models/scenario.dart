@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 import 'package:k100/models/learner_profile.dart';
 
 /// What kind of practice a scenario represents. Drives grouping in the UI and

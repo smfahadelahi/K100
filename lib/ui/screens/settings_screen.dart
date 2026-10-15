@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
 import 'package:k100/core/constants.dart';
 import 'package:k100/core/logger.dart';
 import 'package:k100/core/theme.dart';
@@ -543,7 +542,7 @@ class SettingsScreen extends ConsumerWidget {
       final Map<String, Object?> report = await llm.deviceReport();
       final String benchmark = await llm.benchmark();
       if (!context.mounted) return;
-      showDialog<void>(
+      await showDialog<void>(
         context: context,
         builder: (BuildContext context) => AlertDialog(
           backgroundColor: AppColors.surface,

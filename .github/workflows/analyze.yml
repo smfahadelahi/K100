@@ -141,7 +141,17 @@ jobs:
             esac
           done < /tmp/distinct.txt
 
-          if [ "$status" -ne 0 ]; then exit 1; fi
+          # The step's verdict comes from the counts, not from flutter analyze's
+          # own exit code: with --no-fatal-infos a lint-only run still exits
+          # non-zero, and a *fatal* condition must be a real error or warning.
+          if [ "$errors" -gt 0 ] || [ "$warnings" -gt 0 ]; then
+            echo "::error title=Analyze::flutter analyze exited $status with $errors error(s) and $warnings warning(s)."
+            exit 1
+          fi
+          if [ "$status" -ne 0 ]; then
+            echo "::notice title=Analyze::exited $status with lint-only findings; not a failure."
+          fi
+          exit 0
 
       - name: Unit tests
         run: |

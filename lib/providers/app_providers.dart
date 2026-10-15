@@ -1,6 +1,4 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
 import 'package:k100/models/chat_message.dart';
 import 'package:k100/models/language.dart';
 import 'package:k100/models/learner_profile.dart';
@@ -12,6 +10,7 @@ import 'package:k100/services/profile_repository.dart';
 import 'package:k100/services/stt_service.dart';
 import 'package:k100/services/tts_service.dart';
 import 'package:k100/services/voice_pipeline_controller.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  PLATFORM
