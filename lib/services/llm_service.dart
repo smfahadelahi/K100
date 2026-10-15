@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
@@ -602,8 +603,10 @@ class ModelDownloader {
     int total = expectedTotal;
     final String? contentRange = response.headers.value('content-range');
     if (contentRange != null) {
-      final String? rangeTotal = contentRange.split('/').last.trim();
-      final int? parsed = int.tryParse(rangeTotal);
+      final String rangeTotal = contentRange.split('/').last.trim();
+      // `int.tryParse` takes a non-nullable String, so the null case is handled
+      // before the call rather than inside it.
+      final int? parsed = rangeTotal.isEmpty ? null : int.tryParse(rangeTotal);
       if (parsed != null && parsed > 0) total = parsed;
     } else {
       final String? contentLength = response.headers.value('content-length');
