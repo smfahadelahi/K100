@@ -140,23 +140,12 @@ android {
                     "**/*.txt",
             ]
         }
-        // Older AGP syntax kept for compatibility with plugin modules that still
-        // declare `packagingOptions`.
-        doNotStrip "**/*.so"
     }
 
-    // The GGUF weights are NEVER bundled: they are downloaded at runtime into the
-    // app's documents directory. Asserting it here means a future contributor
-    // cannot accidentally ship a 1 GB APK.
-    sourceSets {
-        main {
-            jniLibs.srcDirs = ["src/main/jniLibs"]
-            assets.srcDirs = ["src/main/assets"]
-        }
-    }
 }
 
-// A guard-rail for the "GGUF must not be bundled" rule. Runs on every build.
+// A guard-rail for the "GGUF must not be bundled" rule. Runs on every build
+// (wired into `preBuild` below, so it cannot be skipped by accident).
 tasks.register("assertNoBundledModel") {
     doLast {
         def assetsDir = file("src/main/assets")
@@ -174,6 +163,12 @@ tasks.register("assertNoBundledModel") {
             )
         }
     }
+}
+
+// Wire the guard-rail into every build. Failing here is cheap; shipping a 1 GB
+// APK to users is not.
+tasks.matching { it.name == "preBuild" }.configureEach {
+    dependsOn("assertNoBundledModel")
 }
 
 flutter {
