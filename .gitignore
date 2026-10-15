@@ -5,7 +5,8 @@
 .packages
 .pub-cache/
 .pub/
-build/
+/build/
+/android/**/build/
 coverage/
 *.iml
 *.ipr
@@ -39,17 +40,24 @@ android/gradle/wrapper/gradle-wrapper.jar
 *.o
 *.lo
 .cxx/
-obj/
-libs/
+/obj/
+/libs/
 
 # ─── Model weights: never commit a GGUF ───────────────────────────────────────
 # The weights are downloaded at runtime into the app's documents directory.
+#
+# `models/` was previously unanchored here, which silently excluded the Dart
+# source directory `lib/models/` from every commit — git says nothing when an
+# ignore rule swallows a source folder, so the only symptom was a CI build with
+# an unresolved `package:k100/models/...` import. Every generated-artifact rule
+# below is therefore anchored, and the `Repository sanity` CI step fails if a
+# source path under lib/ is ever ignored again.
 *.gguf
 *.ggml
-*.bin
 *.part
-models/
-assets/models/
+/models/
+/android/app/src/main/assets/models/
+/assets/models/
 
 # ─── Signing & secrets ────────────────────────────────────────────────────────
 *.jks
