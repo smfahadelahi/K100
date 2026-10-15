@@ -736,7 +736,15 @@ class AiResponse {
         .replaceAll(RegExp(r'\bundefined\b'), 'null');
 
     // 3. Trailing commas before a closing brace/bracket.
-    text = text.replaceAll(RegExp(r',\s*([}\]])'), r'$1');
+    // NB: `String.replaceAll` does NOT expand `$1` — pass a mapped replacement.
+    // The literal version of this line injected the text "$1" *and deleted the
+    // closing brace*, which broke the single most important recovery path (a
+    // trailing comma before the final brace is the commonest way a 1.5B model
+    // malforms its JSON).
+    text = text.replaceAllMapped(
+      RegExp(r',\s*([}\]])'),
+      (Match m) => m.group(1)!,
+    );
 
     // 4. Unquoted keys: { reply: "...", grammar_correction: null }
     text = text.replaceAllMapped(
@@ -938,7 +946,10 @@ class AiResponse {
   AiResponse cleanup({String? learnerText}) {
     final String reply = sanitizeForSpeech(replyTargetLanguage);
 
-    String? correction = grammarCorrection;
+    // `_tidy` is what drops the placeholder values 1.5B models like to emit for
+    // optional fields ("null", "none", "n/a", "-") — it has to run on the
+    // correction too, not only on the explanation and the key phrase.
+    String? correction = _tidy(grammarCorrection);
     if (correction != null && learnerText != null && learnerText.trim().isNotEmpty) {
       if (_normalise(correction) == _normalise(learnerText)) correction = null;
     }
@@ -972,7 +983,7 @@ class AiResponse {
       explanation: cleanExplanation,
       fluencyScore: fluencyScore,
       keyPhrase: cleanKeyPhrase,
-      keyPhraseTranslation: keyPhraseTranslation?.trim(),
+      keyPhraseTranslation: _tidy(keyPhraseTranslation),
       mode: mode,
       latency: latency,
       tokensPredicted: tokensPredicted,

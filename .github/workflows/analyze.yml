@@ -153,6 +153,57 @@ jobs:
           fi
           exit 0
 
+      - name: Validate workflow scripts
+        # A broken shell line inside a `run:` block is invisible until execution
+        # reaches it. An earlier version of this file contained
+        # `echo "$({ grep …; } tests passed)"`, which bash rejects as a syntax
+        # error — so a run with *passing* tests reported a failed step and no
+        # output at all. Every run block in every workflow is parsed here first.
+        run: |
+          set -euo pipefail
+          python3 - <<'PYW'
+          import pathlib, subprocess, sys, tempfile, os
+          failures = []
+          for wf in sorted(pathlib.Path('.github/workflows').glob('*.yml')):
+              lines = wf.read_text().splitlines()
+              idx = 0
+              block = 0
+              while idx < len(lines):
+                  line = lines[idx]
+                  if line.strip() == 'run: |':
+                      indent = len(line) - len(line.lstrip())
+                      body = []
+                      j = idx + 1
+                      while j < len(lines):
+                          cur = lines[j]
+                          if cur.strip() == '':
+                              body.append('')
+                              j += 1
+                              continue
+                          if len(cur) - len(cur.lstrip()) > indent:
+                              body.append(cur[indent + 2:])
+                              j += 1
+                          else:
+                              break
+                      block += 1
+                      with tempfile.NamedTemporaryFile('w', suffix='.sh', delete=False) as fh:
+                          fh.write('\n'.join(body) + '\n')
+                          path = fh.name
+                      proc = subprocess.run(['bash', '-n', path], capture_output=True, text=True)
+                      os.unlink(path)
+                      if proc.returncode != 0:
+                          tail = (proc.stderr.strip().splitlines() or ['?'])[-1]
+                          failures.append(f'{wf} run block #{block}: {tail}')
+                      idx = j
+                      continue
+                  idx += 1
+          for f in failures:
+              print(f'::error title=Workflow shell syntax::{f.replace("%", "%25")}')
+          if failures:
+              sys.exit(1)
+          print('::notice title=Workflow shell::every run block parses cleanly')
+          PYW
+
       - name: Unit tests
         run: |
           set -euo pipefail
@@ -174,8 +225,8 @@ jobs:
               if '[E]' not in l:
                   continue
               name = re.search(r'-\d+: (.*?) \[E\]', l)
-              detail = ' '.join(x.strip() for x in lines[i + 1:i + 10])
-              blocks.append(f'{name.group(1) if name else l[:120]}  ::  {detail[:500]}')
+              detail = ' '.join(x.strip() for x in lines[i + 1:i + 6])
+              blocks.append(f'{name.group(1) if name else l[:120]}  ::  {detail[:900]}')
           for b in dict.fromkeys(blocks):
               print(b)
           PY3
@@ -191,7 +242,12 @@ jobs:
             echo "::error title=Tests::flutter test exited $status."
             exit 1
           fi
-          echo "::notice title=Tests::$({ grep -oE '\+[0-9]+' /tmp/test.log | tail -1; } passed)"
+          # NB: `$({ ... } passed)` is a bash *syntax error* — bash parses and
+          # runs a script command-by-command, so it only explodes once execution
+          # reaches the line, which is why this turned a passing test run into a
+          # step failure. Plain assignment instead.
+          passed="$(grep -oE '\+[0-9]+' /tmp/test.log | tail -1 | tr -d '+' || true)"
+          echo "::notice title=Tests::${passed:-0} tests passed"
 
       - name: Upload logs
         if: always()

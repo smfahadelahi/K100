@@ -241,7 +241,8 @@ jobs:
           if [ "$status" -ne 0 ]; then
             echo "::warning title=Unit tests failed::$(tail -c 400 /tmp/test.log | tr '\n' ' ' | sed 's/%/%25/g')"
           else
-            echo "::notice title=Unit tests::$({ grep -oE '\+[0-9]+' /tmp/test.log | tail -1; } tests passed)"
+            passed="$(grep -oE '\+[0-9]+' /tmp/test.log | tail -1 | tr -d '+' || true)"
+            echo "::notice title=Unit tests::${passed:-0} tests passed"
           fi
           exit 0
 
