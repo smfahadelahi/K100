@@ -1029,7 +1029,14 @@ class AiResponse {
     String text = input.trim();
     if (text.isEmpty) return '';
 
+    // Emoji and zero-width controls are stripped before anything else, because
+    // every other rule below is anchored (a badge emoji in front of "AI:" once
+    // hid the speaker label from the label regex). CJK punctuation
+    // (\u3000-\u303F) is deliberately *not* in the pictograph class: 。！？ are
+    // sentence terminators and the TTS engine needs them for prosody.
     text = text
+        .replaceAll(_emojiPattern, ' ')
+        .replaceAll(RegExp(r'[\u200B-\u200F\u202A-\u202E\uFEFF]'), '')
         // Markdown emphasis/headings/code fences.
         .replaceAll(RegExp(r'```[a-zA-Z]*'), ' ')
         .replaceAll(RegExp(r'[*_`#>]+'), ' ')
@@ -1052,13 +1059,6 @@ class AiResponse {
         .replaceAll(RegExp(r'<[^>]{1,30}>'), ' ')
         // Ideographic/full-width spaces → normal space.
         .replaceAll(RegExp(r'[\u3000\u00A0]'), ' ')
-        // Emoji & pictographs (kept out of the spoken reply, but the chat bubble
-        // renders the sanitised text too, so the two always match). CJK
-        // punctuation (\u3000-\u303F) is deliberately NOT in this class: 。！？
-        // are sentence terminators and the TTS engine needs them for prosody.
-        .replaceAll(_emojiPattern, ' ')
-        // Zero-width and bidi control characters can freeze some TTS engines.
-        .replaceAll(RegExp(r'[\u200B-\u200F\u202A-\u202E\uFEFF]'), '')
         // Whitespace normalisation.
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();

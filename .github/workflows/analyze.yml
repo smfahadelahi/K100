@@ -161,10 +161,35 @@ jobs:
           flutter test --reporter expanded > /tmp/test.log 2>&1
           status=$?
           set -e
-          tail -25 /tmp/test.log
+          tail -4 /tmp/test.log
+
+          # One annotation per failing test, carrying the test's name and the
+          # match failure that follows it. `flutter test` interleaves progress
+          # lines, so the failure detail is the few lines after the [E] marker.
+          python3 - <<'PY3' > /tmp/test-failures.txt
+          import pathlib, re
+          lines = pathlib.Path('/tmp/test.log').read_text().splitlines()
+          blocks = []
+          for i, l in enumerate(lines):
+              if '[E]' not in l:
+                  continue
+              name = re.search(r'-\d+: (.*?) \[E\]', l)
+              detail = ' '.join(x.strip() for x in lines[i + 1:i + 10])
+              blocks.append(f'{name.group(1) if name else l[:120]}  ::  {detail[:500]}')
+          for b in dict.fromkeys(blocks):
+              print(b)
+          PY3
+
           if [ "$status" -ne 0 ]; then
-            echo "::error title=Tests failed::$(tail -c 900 /tmp/test.log | tr '\n' ' ' | sed 's/%/%25/g' | cut -c1-8000)"
-            exit "$status"
+            n=0
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              n=$((n + 1))
+              [ "$n" -gt 30 ] && break
+              echo "::error title=Test failure::${line//%/%25}"
+            done < /tmp/test-failures.txt
+            echo "::error title=Tests::flutter test exited $status."
+            exit 1
           fi
           echo "::notice title=Tests::$({ grep -oE '\+[0-9]+' /tmp/test.log | tail -1; } passed)"
 
@@ -176,6 +201,7 @@ jobs:
           path: |
             /tmp/analyze.log
             /tmp/test.log
+            /tmp/test-failures.txt
             /tmp/distinct.txt
             /tmp/lock.txt
           if-no-files-found: ignore
