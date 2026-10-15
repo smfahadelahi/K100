@@ -938,7 +938,10 @@ class AiResponse {
   AiResponse cleanup({String? learnerText}) {
     final String reply = sanitizeForSpeech(replyTargetLanguage);
 
-    String? correction = grammarCorrection;
+    // `_tidy` is what drops the placeholder values 1.5B models like to emit for
+    // optional fields ("null", "none", "n/a", "-") — it has to run on the
+    // correction too, not only on the explanation and the key phrase.
+    String? correction = _tidy(grammarCorrection);
     if (correction != null && learnerText != null && learnerText.trim().isNotEmpty) {
       if (_normalise(correction) == _normalise(learnerText)) correction = null;
     }
@@ -972,7 +975,7 @@ class AiResponse {
       explanation: cleanExplanation,
       fluencyScore: fluencyScore,
       keyPhrase: cleanKeyPhrase,
-      keyPhraseTranslation: keyPhraseTranslation?.trim(),
+      keyPhraseTranslation: _tidy(keyPhraseTranslation),
       mode: mode,
       latency: latency,
       tokensPredicted: tokensPredicted,

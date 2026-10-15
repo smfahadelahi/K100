@@ -174,8 +174,8 @@ jobs:
               if '[E]' not in l:
                   continue
               name = re.search(r'-\d+: (.*?) \[E\]', l)
-              detail = ' '.join(x.strip() for x in lines[i + 1:i + 10])
-              blocks.append(f'{name.group(1) if name else l[:120]}  ::  {detail[:500]}')
+              detail = ' '.join(x.strip() for x in lines[i + 1:i + 6])
+              blocks.append(f'{name.group(1) if name else l[:120]}  ::  {detail[:900]}')
           for b in dict.fromkeys(blocks):
               print(b)
           PY3
