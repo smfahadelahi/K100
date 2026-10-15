@@ -97,10 +97,23 @@ jobs:
           set -e
           tail -5 /tmp/analyze.log
 
-          grep -E '^ +error •' /tmp/analyze.log \
-            | sed -E 's/^ +//' \
-            | awk -F' • ' '{ msg=$1; for (i=2;i<NF;i++) msg=msg " • " $i; print msg }' \
-            | sort | uniq -c | sort -rn > /tmp/distinct.txt || true
+          # Group by the *message* (the location suffix is unique per error, so
+          # including it would make every line distinct and useless).
+          python3 - <<'PY2' > /tmp/distinct.txt
+          import collections, pathlib, re
+          counts = collections.Counter()
+          where = {}
+          for line in pathlib.Path('/tmp/analyze.log').read_text().splitlines():
+              m = re.match(r'^\s+error\s+•\s+(.*?)\s+•\s+(\S+?):(\d+):(\d+)\s+•\s+(\S+)\s*$', line)
+              if not m:
+                  continue
+              msg, path, ln, col, code = m.groups()
+              key = f'{msg} [{code}]'
+              counts[key] += 1
+              where.setdefault(key, f'{path}:{ln}')
+          for key, n in counts.most_common():
+              print(f'{n}x {key} — e.g. {where[key]}')
+          PY2
 
           total="$(grep -cE '^ +error •' /tmp/analyze.log || true)"
           distinct="$(wc -l < /tmp/distinct.txt | tr -d ' ')"
@@ -110,7 +123,7 @@ jobs:
           while IFS= read -r line; do
             [ -z "$line" ] && continue
             n=$((n + 1))
-            [ "$n" -gt 25 ] && break
+            [ "$n" -gt 50 ] && break
             echo "::error title=Analyze::${line//%/%25}"
           done < /tmp/distinct.txt
 
