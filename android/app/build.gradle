@@ -34,6 +34,42 @@ if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.withReader("UTF-8") { reader -> keystoreProperties.load(reader) }
 }
 
+// ── Which keystore, if any ────────────────────────────────────────────────────
+//
+// The path in key.properties is resolved against the *root* project on purpose:
+// this file lives in android/app/, so a bare `file("keystore/release.jks")` would
+// look in android/app/keystore/ and Gradle would fail the last task of the
+// build with
+//   "Keystore file '.../android/app/keystore/release.jks' not found for
+//    signing config 'release'"
+// after ten minutes of native compilation. That is exactly what happened the
+// first time this workflow produced an APK.
+//
+// If no usable keystore is present the release build type is signed with the
+// debug key instead, so a fresh clone with no secrets still yields an
+// installable APK rather than a failed build.
+def releaseKeystoreFile = null
+if (keystoreProperties["storeFile"] != null) {
+    def candidate = rootProject.file(keystoreProperties["storeFile"])
+    if (candidate.exists()) {
+        releaseKeystoreFile = candidate
+    }
+}
+if (releaseKeystoreFile == null) {
+    def conventional = rootProject.file("keystore/release.jks")
+    if (conventional.exists()) {
+        releaseKeystoreFile = conventional
+    }
+}
+def hasReleaseKeystore = releaseKeystoreFile != null &&
+        keystoreProperties["storePassword"] != null &&
+        keystoreProperties["keyAlias"] != null &&
+        keystoreProperties["keyPassword"] != null
+
+logger.lifecycle(hasReleaseKeystore
+        ? "Release signing: ${releaseKeystoreFile}"
+        : "Release signing: no keystore found — falling back to the debug key.")
+
 android {
     namespace "dev.k100.tutor"
     compileSdk 36
@@ -49,6 +85,19 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+    }
+
+    // llama.cpp's .so keeps its symbols; the rest of the native libraries are
+    // stripped as usual.
+    packaging {
+        jniLibs {
+            keepDebugSymbols += [
+                    "**/libfllama.so",
+                    "**/libfcllama.so",
+                    "**/libllama.so",
+                    "**/libggml*.so",
+            ]
+        }
     }
 
     defaultConfig {
@@ -76,12 +125,8 @@ android {
 
     signingConfigs {
         release {
-            if (keystorePropertiesFile.exists() &&
-                    keystoreProperties["storeFile"] != null &&
-                    keystoreProperties["storePassword"] != null &&
-                    keystoreProperties["keyAlias"] != null &&
-                    keystoreProperties["keyPassword"] != null) {
-                storeFile file(keystoreProperties["storeFile"])
+            if (hasReleaseKeystore) {
+                storeFile releaseKeystoreFile
                 storePassword keystoreProperties["storePassword"]
                 keyAlias keystoreProperties["keyAlias"]
                 keyPassword keystoreProperties["keyPassword"]
@@ -97,7 +142,7 @@ android {
         release {
             // Signed with the real key when the secrets exist, debug key otherwise.
             // A CI build with no secrets still produces an installable APK.
-            signingConfig keystorePropertiesFile.exists()
+            signingConfig hasReleaseKeystore
                     ? signingConfigs.release
                     : signingConfigs.debug
 
@@ -113,7 +158,10 @@ android {
             shrinkResources false
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
 
-            // No native debug symbols in the APK: llama.cpp builds ~20 MB of them.
+            // llama.cpp is not stripped. A native crash inside the engine is the
+            // most likely failure this app will ever have to diagnose, and an
+            // unsymbolicated tombstone makes that impossible. The Flutter engine
+            // and the plugins are still stripped (they are prebuilt and stable).
             ndk {
                 debugSymbolLevel "none"
             }
