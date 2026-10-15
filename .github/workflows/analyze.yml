@@ -99,32 +99,44 @@ jobs:
 
           # Group by the *message* (the location suffix is unique per error, so
           # including it would make every line distinct and useless).
+          # `flutter analyze` treats warnings as fatal, so both severities are
+          # reported. Deduplicated by *message* — the file:line suffix is unique
+          # per occurrence and would hide the fact that one mistake appears forty
+          # times.
           python3 - <<'PY2' > /tmp/distinct.txt
           import collections, pathlib, re
           counts = collections.Counter()
           where = {}
           for line in pathlib.Path('/tmp/analyze.log').read_text().splitlines():
-              m = re.match(r'^\s+error\s+•\s+(.*?)\s+•\s+(\S+?):(\d+):(\d+)\s+•\s+(\S+)\s*$', line)
+              m = re.match(r'^\s+(error|warning)\s+•\s+(.*?)\s+•\s+(\S+?):(\d+):(\d+)\s+•\s+(\S+)\s*$', line)
               if not m:
                   continue
-              msg, path, ln, col, code = m.groups()
-              key = f'{msg} [{code}]'
+              sev, msg, path, ln, col, code = m.groups()
+              key = f'{sev}|{msg} [{code}]'
               counts[key] += 1
               where.setdefault(key, f'{path}:{ln}')
           for key, n in counts.most_common():
               print(f'{n}x {key} — e.g. {where[key]}')
           PY2
 
-          total="$(grep -cE '^ +error •' /tmp/analyze.log || true)"
-          distinct="$(wc -l < /tmp/distinct.txt | tr -d ' ')"
-          echo "::notice title=Analyze summary::$total errors, $distinct distinct"
+          errors="$(grep -cE '^ +error •' /tmp/analyze.log || true)"
+          warnings="$(grep -cE '^ +warning •' /tmp/analyze.log || true)"
+          distinct="$(grep -c . /tmp/distinct.txt || true)"
+          echo "::notice title=Analyze summary::$errors errors, $warnings warnings, $distinct distinct"
 
           n=0
           while IFS= read -r line; do
             [ -z "$line" ] && continue
             n=$((n + 1))
-            [ "$n" -gt 50 ] && break
-            echo "::error title=Analyze::${line//%/%25}"
+            [ "$n" -gt 55 ] && break
+            case "$line" in
+              *'|'*) : ;;
+            esac
+            body="${line//%/%25}"
+            case "$line" in
+              *'|warning'*) echo "::warning title=Analyze::${body}" ;;
+              *)            echo "::error title=Analyze::${body}" ;;
+            esac
           done < /tmp/distinct.txt
 
           if [ "$status" -ne 0 ]; then exit 1; fi
