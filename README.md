@@ -57,13 +57,45 @@ one-time download of the model weights that *you* start.
 
 ## Install
 
-Grab `app-arm64-v8a-release.apk` from the latest
-[release](../../releases) and install it. Then:
+Download **[`app-arm64-v8a-release.apk`](https://github.com/smfahadelahi/K100/releases/download/v1.0.0/app-arm64-v8a-release.apk)**
+(~21 MB) from the [latest release](https://github.com/smfahadelahi/K100/releases/latest) and
+open it on the phone. Android will ask you to allow installing from this source; that prompt
+is normal for any app that is not distributed through the Play Store.
+
+Then:
 
 1. Pick your native language, your target language and your level.
 2. Choose a model and tap **Download** (~1.1 GB for the default). The download is
    resumable, pause-able and SHA-256 verified against the Hub's LFS metadata.
 3. Once it says *Ready*, tap the orb and start talking.
+
+The APK is arm64-v8a only, so it installs on any 64-bit ARM phone running Android 8.0 or
+newer and on nothing else. It contains the whole app and the llama.cpp engine, but no model
+weights — those are downloaded once, from Hugging Face, into the app's own documents
+directory, and are never uploaded anywhere.
+
+### Signing
+
+Release APKs are signed with **your** key when these four repository secrets exist:
+
+| Secret | Contents |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 release.jks` |
+| `ANDROID_KEYSTORE_PASSWORD` | the store password |
+| `ANDROID_KEY_ALIAS` | the key alias |
+| `ANDROID_KEY_PASSWORD` | the key password |
+
+Without them the workflow generates a throwaway keystore so the build still produces an
+installable APK (the release notes then say `Signing: ci-temporary`). That is what the
+current `v1.0.0` asset is: **installable, but not upgradeable in place across rebuilds** —
+Android refuses to update an app whose signature changed, so a later throwaway-signed build
+needs an uninstall first. Add the four secrets before you rely on in-place updates.
+
+You can verify any downloaded APK against the SHA-256 printed in its release notes:
+
+```bash
+sha256sum app-arm64-v8a-release.apk
+```
 
 ---
 
