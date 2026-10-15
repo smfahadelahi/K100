@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
 import 'package:k100/core/constants.dart';
 import 'package:k100/core/theme.dart';
 import 'package:k100/models/language.dart';
@@ -257,7 +256,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
             ),
           Row(
             children: <Widget>[
-              if ((_step > 0 || !widget.isOnboarding))
+              if (_step > 0 || !widget.isOnboarding)
                 Expanded(
                   child: OutlinedButton(
                     onPressed: _finishing ? null : _back,
@@ -514,7 +513,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
   Widget _modelStep(ThemeData theme, LearnerProfile profile) {
     final AsyncValue<Set<String>> installed = ref.watch(installedModelsProvider);
-    final Set<String> installedIds = installed.valueOrNull ?? <String>{};
+    final Set<String> installedIds = installed.asData?.value ?? <String>{};
     final ModelEntry? selected = ref.watch(selectedModelProvider);
     final TutorRuntimeState runtime = ref.watch(tutorControllerProvider);
 

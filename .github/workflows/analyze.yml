@@ -1,0 +1,208 @@
+name: Analyze & test
+
+# The fast feedback loop. Runs on every branch (including the ones Arena sessions
+# push to) so a compile error is caught in ~2 minutes instead of after a
+# 10-minute release build with a native llama.cpp compile.
+#
+# Deliberately installs no Android SDK, no NDK and no Gradle: `flutter analyze`
+# and `flutter test` are pure Dart. Every distinct error is re-emitted as a
+# GitHub annotation, so a failure is diagnosable without the raw job log.
+
+on:
+  push:
+    branches-ignore: []
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: analyze-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.35.7'
+
+jobs:
+  analyze:
+    name: Analyze and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Flutter SDK and pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            /opt/flutter
+          key: flutter-analyze-${{ env.FLUTTER_VERSION }}-${{ hashFiles('pubspec.yaml') }}
+          restore-keys: |
+            flutter-analyze-${{ env.FLUTTER_VERSION }}-
+            flutter-stable-${{ env.FLUTTER_VERSION }}-
+
+      - name: Install Flutter ${{ env.FLUTTER_VERSION }}
+        run: |
+          set -euo pipefail
+          if [ ! -d /opt/flutter/.git ]; then
+            git clone --depth 1 --branch "${FLUTTER_VERSION}" \
+              https://github.com/flutter/flutter.git /opt/flutter
+          fi
+          echo "/opt/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Resolve dependencies
+        run: |
+          set -euo pipefail
+          export PATH="/opt/flutter/bin:$PATH"
+          flutter --version
+          if ! flutter pub get > /tmp/pub-get.log 2>&1; then
+            echo "::error title=pub get failed::$(tail -c 600 /tmp/pub-get.log | tr '\n' ' ' | sed 's/%/%25/g')"
+            exit 1
+          fi
+          awk '/^  [a-z_]+:$/ {name=$1} /version: "/ {if (name != "") {print name, $2; name=""}}' pubspec.lock \
+            | head -40 > /tmp/lock.txt || true
+          cat /tmp/lock.txt
+
+      - name: Show resolved package versions
+        run: |
+          python3 - <<'PY'
+          import pathlib, re, sys
+          lock = pathlib.Path('pubspec.lock')
+          if not lock.exists():
+              print('::warning title=pubspec.lock::pub got did not write a lock file')
+              sys.exit(0)
+          wanted = {'flutter_riverpod', 'fcllama', 'dio', 'speech_to_text',
+                    'flutter_tts', 'sqflite', 'shared_preferences', 'path_provider',
+                    'crypto', 'path'}
+          current = None
+          for line in lock.read_text().splitlines():
+              m = re.match(r'^  (\w+):', line)
+              if m:
+                  current = m.group(1)
+              m = re.match(r'^    version: "?([^"]+)"?', line)
+              if m and current in wanted:
+                  print(f'::notice title=Resolved::{current} {m.group(1)}')
+          PY
+
+      - name: Static analysis
+        run: |
+          set -euo pipefail
+          export PATH="/opt/flutter/bin:$PATH"
+          set +e
+          flutter analyze --no-fatal-infos > /tmp/analyze.log 2>&1
+          status=$?
+          set -e
+          tail -5 /tmp/analyze.log
+
+          # Group by the *message* (the location suffix is unique per error, so
+          # including it would make every line distinct and useless).
+          # `flutter analyze` treats warnings as fatal, so both severities are
+          # reported. Deduplicated by *message* — the file:line suffix is unique
+          # per occurrence and would hide the fact that one mistake appears forty
+          # times.
+          python3 - <<'PY2' > /tmp/distinct.txt
+          import collections, pathlib, re
+          counts = collections.Counter()
+          where = {}
+          for line in pathlib.Path('/tmp/analyze.log').read_text().splitlines():
+              m = re.match(r'^\s+(error|warning|info)\s+•\s+(.*?)\s+•\s+(\S+?):(\d+):(\d+)\s+•\s+(\S+)\s*$', line)
+              if not m:
+                  continue
+              sev, msg, path, ln, col, code = m.groups()
+              key = f'{sev}|{msg} [{code}]'
+              counts[key] += 1
+              where.setdefault(key, f'{path}:{ln}')
+          for key, n in counts.most_common():
+              print(f'{n}x {key} — e.g. {where[key]}')
+          PY2
+
+          errors="$(grep -cE '^ +error •' /tmp/analyze.log || true)"
+          warnings="$(grep -cE '^ +warning •' /tmp/analyze.log || true)"
+          infos="$(grep -cE '^ +info •' /tmp/analyze.log || true)"
+          distinct="$(grep -c . /tmp/distinct.txt || true)"
+          echo "::notice title=Analyze summary::$errors errors, $warnings warnings, $infos lint notices, $distinct distinct"
+
+          n=0
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            n=$((n + 1))
+            [ "$n" -gt 55 ] && break
+            case "$line" in
+              *'|'*) : ;;
+            esac
+            body="${line//%/%25}"
+            case "$line" in
+              *'|warning'*) echo "::warning title=Analyze::${body}" ;;
+              *'|info'*)    echo "::notice title=Lint::${body}" ;;
+              *)            echo "::error title=Analyze::${body}" ;;
+            esac
+          done < /tmp/distinct.txt
+
+          # The step's verdict comes from the counts, not from flutter analyze's
+          # own exit code: with --no-fatal-infos a lint-only run still exits
+          # non-zero, and a *fatal* condition must be a real error or warning.
+          if [ "$errors" -gt 0 ] || [ "$warnings" -gt 0 ]; then
+            echo "::error title=Analyze::flutter analyze exited $status with $errors error(s) and $warnings warning(s)."
+            exit 1
+          fi
+          if [ "$status" -ne 0 ]; then
+            echo "::notice title=Analyze::exited $status with lint-only findings; not a failure."
+          fi
+          exit 0
+
+      - name: Unit tests
+        run: |
+          set -euo pipefail
+          export PATH="/opt/flutter/bin:$PATH"
+          set +e
+          flutter test --reporter expanded > /tmp/test.log 2>&1
+          status=$?
+          set -e
+          tail -4 /tmp/test.log
+
+          # One annotation per failing test, carrying the test's name and the
+          # match failure that follows it. `flutter test` interleaves progress
+          # lines, so the failure detail is the few lines after the [E] marker.
+          python3 - <<'PY3' > /tmp/test-failures.txt
+          import pathlib, re
+          lines = pathlib.Path('/tmp/test.log').read_text().splitlines()
+          blocks = []
+          for i, l in enumerate(lines):
+              if '[E]' not in l:
+                  continue
+              name = re.search(r'-\d+: (.*?) \[E\]', l)
+              detail = ' '.join(x.strip() for x in lines[i + 1:i + 10])
+              blocks.append(f'{name.group(1) if name else l[:120]}  ::  {detail[:500]}')
+          for b in dict.fromkeys(blocks):
+              print(b)
+          PY3
+
+          if [ "$status" -ne 0 ]; then
+            n=0
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              n=$((n + 1))
+              [ "$n" -gt 30 ] && break
+              echo "::error title=Test failure::${line//%/%25}"
+            done < /tmp/test-failures.txt
+            echo "::error title=Tests::flutter test exited $status."
+            exit 1
+          fi
+          echo "::notice title=Tests::$({ grep -oE '\+[0-9]+' /tmp/test.log | tail -1; } passed)"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: analyze-log
+          path: |
+            /tmp/analyze.log
+            /tmp/test.log
+            /tmp/test-failures.txt
+            /tmp/distinct.txt
+            /tmp/lock.txt
+          if-no-files-found: ignore
+          retention-days: 14

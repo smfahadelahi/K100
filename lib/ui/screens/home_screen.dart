@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
 import 'package:k100/core/constants.dart';
 import 'package:k100/core/theme.dart';
 import 'package:k100/models/chat_message.dart';
@@ -100,7 +99,7 @@ class _PracticeTab extends ConsumerWidget {
     final AsyncValue<List<DailyProgress>> week = ref.watch(weeklyStatsProvider);
     final AsyncValue<double> average = ref.watch(averageScoreProvider);
 
-    final List<DailyProgress> days = week.valueOrNull ?? <DailyProgress>[];
+    final List<DailyProgress> days = week.asData?.value ?? <DailyProgress>[];
     final String todayKey = DatabaseService.dayKey();
     final DailyProgress today = days.isNotEmpty && days.last.day == todayKey
         ? days.last
@@ -153,9 +152,9 @@ class _PracticeTab extends ConsumerWidget {
               const SizedBox(height: 14),
               _engineBanner(theme, profile, runtime),
               const SizedBox(height: 14),
-              _todayCard(theme, today, days, profile, average.valueOrNull),
+              _todayCard(theme, today, days, profile, average.asData?.value),
               const SizedBox(height: 18),
-              _freeTalkCard(theme, runtime),
+              _freeTalkCard(context, theme, runtime),
               const SizedBox(height: 22),
               _sectionTitle(theme, 'Role-play', 'Pick a situation and act it out'),
               const SizedBox(height: 10),
@@ -165,7 +164,7 @@ class _PracticeTab extends ConsumerWidget {
                   'Structured stages that get harder as you improve'),
               const SizedBox(height: 10),
               ...Scenarios.curriculum.map((LessonScenario scenario) =>
-                  _curriculumRow(theme, scenario, profile, runtime)),
+                  _curriculumRow(context, theme, scenario, profile, runtime)),
               const SizedBox(height: 18),
               Text(
                 'Everything runs on this device. No account, no API key, no '
@@ -434,7 +433,11 @@ class _PracticeTab extends ConsumerWidget {
 
   // ── Launchers ─────────────────────────────────────────────────────────────
 
-  Widget _freeTalkCard(ThemeData theme, TutorRuntimeState runtime) {
+  Widget _freeTalkCard(
+    BuildContext context,
+    ThemeData theme,
+    TutorRuntimeState runtime,
+  ) {
     final LessonScenario scenario = Scenarios.freeTalk;
     return GestureDetector(
       onTap: () => _open(context, scenario),
@@ -573,6 +576,7 @@ class _PracticeTab extends ConsumerWidget {
   }
 
   Widget _curriculumRow(
+    BuildContext context,
     ThemeData theme,
     LessonScenario scenario,
     LearnerProfile profile,

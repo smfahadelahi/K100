@@ -212,9 +212,7 @@ class AiResponse {
         // it, then fall back to per-field regex recovery.
         final String closed = _closeUnterminated(candidate);
         map = _tryDecode(closed);
-        if (map == null) {
-          map = _tryDecode(repairJson(closed));
-        }
+        map ??= _tryDecode(repairJson(closed));
         if (map != null) mode = AiParseMode.repairedJson;
       }
 
@@ -898,9 +896,14 @@ class AiResponse {
     // Drop a dangling comma.
     text = text.replaceAll(RegExp(r',\s*$'), '');
     // Close a truncated trailing string before the final brace repair.
-    while (openBraces > 0) {
-      text = '$text}';
-      openBraces--;
+    if (openBraces > 0) {
+      // A StringBuffer, not repeated concatenation: this runs on every malformed
+      // 1.5B reply and the braces can number in the dozens.
+      final StringBuffer buffer = StringBuffer(text);
+      for (int i = 0; i < openBraces; i++) {
+        buffer.write('}');
+      }
+      text = buffer.toString();
     }
     return text;
   }
@@ -944,17 +947,19 @@ class AiResponse {
     }
     if (correction != null && correction.trim().length < 2) correction = null;
 
-    String? explanation = _tidy(explanation);
-    if (explanation != null && correction == null) {
+    // Read the fields first: `String? explanation = _tidy(explanation)` would
+    // reference the local being declared, not the field.
+    String? cleanExplanation = _tidy(explanation);
+    if (cleanExplanation != null && correction == null) {
       // A correction-less explanation is usually noise, unless it is about the
       // tutor's own reply.
-      if (explanation.trim().length < 6) explanation = null;
+      if (cleanExplanation.trim().length < 6) cleanExplanation = null;
     }
 
-    String? keyPhrase = _tidy(keyPhrase);
-    if (keyPhrase != null && _normalise(keyPhrase) == _normalise(reply)) {
+    String? cleanKeyPhrase = _tidy(keyPhrase);
+    if (cleanKeyPhrase != null && _normalise(cleanKeyPhrase) == _normalise(reply)) {
       // The whole sentence is not a "phrase to learn".
-      keyPhrase = null;
+      cleanKeyPhrase = null;
     }
 
     return AiResponse(
@@ -964,9 +969,9 @@ class AiResponse {
           ? null
           : replyRomanization!.trim(),
       grammarCorrection: correction?.trim(),
-      explanation: explanation,
+      explanation: cleanExplanation,
       fluencyScore: fluencyScore,
-      keyPhrase: keyPhrase,
+      keyPhrase: cleanKeyPhrase,
       keyPhraseTranslation: keyPhraseTranslation?.trim(),
       mode: mode,
       latency: latency,
@@ -1024,7 +1029,14 @@ class AiResponse {
     String text = input.trim();
     if (text.isEmpty) return '';
 
+    // Emoji and zero-width controls are stripped before anything else, because
+    // every other rule below is anchored (a badge emoji in front of "AI:" once
+    // hid the speaker label from the label regex). CJK punctuation
+    // (\u3000-\u303F) is deliberately *not* in the pictograph class: 。！？ are
+    // sentence terminators and the TTS engine needs them for prosody.
     text = text
+        .replaceAll(_emojiPattern, ' ')
+        .replaceAll(RegExp(r'[\u200B-\u200F\u202A-\u202E\uFEFF]'), '')
         // Markdown emphasis/headings/code fences.
         .replaceAll(RegExp(r'```[a-zA-Z]*'), ' ')
         .replaceAll(RegExp(r'[*_`#>]+'), ' ')
@@ -1047,13 +1059,6 @@ class AiResponse {
         .replaceAll(RegExp(r'<[^>]{1,30}>'), ' ')
         // Ideographic/full-width spaces → normal space.
         .replaceAll(RegExp(r'[\u3000\u00A0]'), ' ')
-        // Emoji & pictographs (kept out of the spoken reply, but the chat bubble
-        // renders the sanitised text too, so the two always match). CJK
-        // punctuation (\u3000-\u303F) is deliberately NOT in this class: 。！？
-        // are sentence terminators and the TTS engine needs them for prosody.
-        .replaceAll(_emojiPattern, ' ')
-        // Zero-width and bidi control characters can freeze some TTS engines.
-        .replaceAll(RegExp(r'[\u200B-\u200F\u202A-\u202E\uFEFF]'), '')
         // Whitespace normalisation.
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();

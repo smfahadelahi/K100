@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 import 'package:k100/core/theme.dart';
 import 'package:k100/models/ai_response.dart';
 import 'package:k100/models/chat_message.dart';

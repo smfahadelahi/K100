@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 import 'package:k100/models/learner_profile.dart';
 
 /// What kind of practice a scenario represents. Drives grouping in the UI and
@@ -192,7 +191,7 @@ class Scenarios {
         'instruction using an imperative (rest, take this twice a day).',
     starterPrompts: <String>[
       'I have a sore throat and a headache.',
-      "It started three days ago.",
+      'It started three days ago.',
       'Do I need antibiotics?',
     ],
     vocabulary: <String>['symptom', 'fever', 'prescription', 'twice a day', 'allergy'],

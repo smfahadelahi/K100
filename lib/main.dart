@@ -4,8 +4,6 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
 import 'package:k100/core/constants.dart';
 import 'package:k100/core/logger.dart';
 import 'package:k100/core/theme.dart';
@@ -13,6 +11,7 @@ import 'package:k100/models/learner_profile.dart';
 import 'package:k100/providers/app_providers.dart';
 import 'package:k100/ui/screens/home_screen.dart';
 import 'package:k100/ui/screens/setup_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// K100 — an offline AI language speaking tutor.
 ///
@@ -73,7 +72,10 @@ Future<void> main() async {
 
   runApp(
     ProviderScope(
-      overrides: <Override>[
+      // No explicit type argument here on purpose: the element type of this list
+      // is Riverpod's override class, whose name is not part of the API the app
+      // needs to spell out. Inference is exact, and it survives a Riverpod bump.
+      overrides: [
         // The one override the whole app depends on: without it, every provider
         // that reads a stored setting would have to be asynchronous.
         sharedPreferencesProvider.overrideWithValue(preferences),

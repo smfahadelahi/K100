@@ -1,9 +1,8 @@
-import 'package:shared_preferences/shared_preferences.dart';
-
 import 'package:k100/core/constants.dart';
 import 'package:k100/core/logger.dart';
 import 'package:k100/models/language.dart';
 import 'package:k100/models/learner_profile.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Persists the learner profile in `shared_preferences`.
 ///

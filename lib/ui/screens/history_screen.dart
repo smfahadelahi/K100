@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
 import 'package:k100/core/theme.dart';
 import 'package:k100/models/chat_message.dart';
 import 'package:k100/models/scenario.dart';

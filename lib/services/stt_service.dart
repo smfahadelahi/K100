@@ -1,12 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:k100/core/constants.dart';
+import 'package:k100/core/logger.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
-
-import 'package:k100/core/constants.dart';
-import 'package:k100/core/logger.dart';
 
 /// A partial or final transcript, plus the confidence when the engine reports it.
 @immutable
@@ -48,8 +47,13 @@ class SttException implements Exception {
   final SttFailure failure;
   final String? detail;
 
+  /// Learner-facing text: the failure's own message, plus the engine's detail
+  /// when the plugin supplied one.
+  String get message =>
+      detail == null ? failure.message : '${failure.message} ($detail)';
+
   @override
-  String toString() => detail == null ? failure.message : '${failure.message} ($detail)';
+  String toString() => message;
 }
 
 /// Thin, defensive wrapper around `speech_to_text`.
@@ -60,7 +64,7 @@ class SttException implements Exception {
 ///    the promise that this app never sends the learner's voice anywhere. When
 ///    the device has no offline language pack, [start] transparently retries
 ///    once with the network recogniser and reports which one ran through
-///    [SttSession.onDevice];
+///    [start]'s `onDevice` callback;
 ///  * explicit lifecycle reporting so the controller can enforce the half-duplex
 ///    lock (`isListening` is a fact, not a guess);
 ///  * a hard timeout independent of the plugin, because some Android builds

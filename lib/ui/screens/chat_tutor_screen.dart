@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
 import 'package:k100/core/constants.dart';
 import 'package:k100/core/theme.dart';
 import 'package:k100/models/chat_message.dart';
@@ -71,18 +70,22 @@ class _ChatTutorScreenState extends ConsumerState<ChatTutorScreen> {
     });
   }
 
+  /// Fire-and-forget on purpose: a haptic tap must never delay the turn, so the
+  /// returned Future is explicitly discarded with `unawaited`.
   void _haptic({bool heavy = false}) {
     if (!ref.read(profileProvider).haptics) return;
     if (heavy) {
-      HapticFeedback.mediumImpact();
+      unawaited(HapticFeedback.mediumImpact());
     } else {
-      HapticFeedback.selectionClick();
+      unawaited(HapticFeedback.selectionClick());
     }
   }
 
   Future<void> _close() async {
     await _controller.endSession();
-    if (mounted) Navigator.of(context).maybePop();
+    // `maybePop` returns a Future: awaiting it keeps the analysis clean and means
+    // the route is fully gone before the caller continues.
+    if (mounted) await Navigator.of(context).maybePop();
   }
 
   Future<void> _onOrbTap(TutorRuntimeState state) async {

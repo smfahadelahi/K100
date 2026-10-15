@@ -1,18 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
-import 'package:fcllama/fcllama.dart';
+import 'package:fcllama/fllama.dart';
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
-
 import 'package:k100/core/constants.dart';
 import 'package:k100/core/logger.dart';
 import 'package:k100/models/model_catalog.dart';
+import 'package:path_provider/path_provider.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  DOWNLOAD LAYER
@@ -119,7 +118,7 @@ class DownloadProgress {
     if (value.inMinutes < 60) return '${value.inMinutes}m left';
     final int hours = value.inHours;
     final int minutes = value.inMinutes % 60;
-    return '${hours}h ${minutes}m left';
+    return '${hours}h $minutes m left';
   }
 
   String get percentLabel {
@@ -221,7 +220,7 @@ class ModelDownloader {
   Future<Directory> modelsDirectory() async {
     final Directory documents = await getApplicationDocumentsDirectory();
     final Directory models = Directory('${documents.path}/${AppConfig.modelDirectoryName}');
-    if (!await models.exists()) {
+    if (!models.existsSync()) {
       await models.create(recursive: true);
     }
     return models;
@@ -264,13 +263,13 @@ class ModelDownloader {
   }
 
   Future<bool> isInstalled(ModelEntry entry) async =>
-      File(await targetPath(entry)).exists();
+      File(await targetPath(entry)).existsSync();
 
   Future<int> downloadedBytes(ModelEntry entry) async {
     final File file = File(await targetPath(entry));
-    if (await file.exists()) return file.length();
+    if (file.existsSync()) return file.length();
     final File part = File('${file.path}.part');
-    if (await part.exists()) return part.length();
+    if (part.existsSync()) return part.length();
     return 0;
   }
 
@@ -280,7 +279,7 @@ class ModelDownloader {
     int total = 0;
     await for (final FileSystemEntity entity in models.list()) {
       if (entity is File) {
-        total += await entity.length();
+        total += entity.lengthSync();
       }
     }
     return total;
@@ -324,7 +323,7 @@ class ModelDownloader {
     final String path = await targetPath(entry);
     for (final String candidate in <String>[path, '$path.part']) {
       final File file = File(candidate);
-      if (await file.exists()) {
+      if (file.existsSync()) {
         await file.delete();
         Log.info('Deleted ${candidate.split('/').last}');
       }
@@ -362,8 +361,8 @@ class ModelDownloader {
     final File partFile = File(partPath);
 
     // Already complete? Nothing to do.
-    if (await targetFile.exists()) {
-      final int length = await targetFile.length();
+    if (targetFile.existsSync()) {
+      final int length = targetFile.lengthSync();
       if (length > 0) {
         _emit(
           DownloadProgress(
@@ -408,7 +407,7 @@ class ModelDownloader {
     );
 
     // 2. Download with resume, in chunks, with retries.
-    int received = await partFile.exists() ? await partFile.length() : 0;
+    int received = partFile.existsSync() ? partFile.lengthSync() : 0;
 
     for (int attempt = 1; attempt <= AppConfig.downloadMaxRetries; attempt++) {
       if (_cancelled) return _finishCancelled(partFile);
@@ -440,7 +439,7 @@ class ModelDownloader {
               'received). Pause and resume to continue from where it stopped.');
           return null;
         }
-        received = await partFile.exists() ? await partFile.length() : 0;
+        received = partFile.existsSync() ? partFile.lengthSync() : 0;
         await Future<void>.delayed(
           AppConfig.downloadRetryBackoff * attempt,
         );
@@ -451,7 +450,7 @@ class ModelDownloader {
           _emitFailed(entry.id, _friendlyDioMessage(error));
           return null;
         }
-        received = await partFile.exists() ? await partFile.length() : 0;
+        received = partFile.existsSync() ? partFile.lengthSync() : 0;
         await Future<void>.delayed(AppConfig.downloadRetryBackoff * attempt);
       } catch (error, stack) {
         Log.error('Unexpected download failure', error, stack);
@@ -461,12 +460,12 @@ class ModelDownloader {
     }
 
     // 3. Move the finished file into place.
-    if (!await partFile.exists()) {
+    if (!partFile.existsSync()) {
       _emitFailed(entry.id, 'The downloaded file disappeared.');
       return null;
     }
 
-    final int finalSize = await partFile.length();
+    final int finalSize = partFile.lengthSync();
     if (expectedTotal > 0 && finalSize < expectedTotal) {
       _emitFailed(
         entry.id,
@@ -476,7 +475,7 @@ class ModelDownloader {
     }
 
     try {
-      if (await targetFile.exists()) await targetFile.delete();
+      if (targetFile.existsSync()) await targetFile.delete();
       await partFile.rename(target);
     } on FileSystemException catch (error) {
       Log.error('Could not finalise the download', error);
@@ -595,15 +594,17 @@ class ModelDownloader {
     int offset = startOffset;
     if (startOffset > 0 && response.statusCode == 200) {
       Log.warn('Server ignored the Range header — restarting the download');
-      if (await file.exists()) await file.delete();
+      if (file.existsSync()) await file.delete();
       offset = 0;
     }
 
     int total = expectedTotal;
     final String? contentRange = response.headers.value('content-range');
     if (contentRange != null) {
-      final String? rangeTotal = contentRange.split('/').last.trim();
-      final int? parsed = int.tryParse(rangeTotal);
+      final String rangeTotal = contentRange.split('/').last.trim();
+      // `int.tryParse` takes a non-nullable String, so the null case is handled
+      // before the call rather than inside it.
+      final int? parsed = rangeTotal.isEmpty ? null : int.tryParse(rangeTotal);
       if (parsed != null && parsed > 0) total = parsed;
     } else {
       final String? contentLength = response.headers.value('content-length');
@@ -674,7 +675,7 @@ class ModelDownloader {
     }
 
     // Neither a range nor a length: at least confirm the file grew.
-    final int finalLength = await file.length();
+    final int finalLength = file.lengthSync();
     if (total > 0 && finalLength < total) {
       throw _IncompleteDownloadException(finalLength, total);
     }
@@ -689,6 +690,13 @@ class ModelDownloader {
 
   DownloadProgress _currentOr(String modelId) =>
       _current.modelId == modelId ? _current : DownloadProgress.idle(modelId);
+
+  /// Publishes a progress update: stores it as the current snapshot and pushes it
+  /// to [progressStream] listeners.
+  void _emit(DownloadProgress progress) {
+    _current = progress;
+    if (!_progress.isClosed) _progress.add(progress);
+  }
 
   void _emitFailed(String modelId, String message) {
     _emit(
@@ -732,6 +740,12 @@ class ModelDownloader {
         return 'The server certificate could not be verified.';
       case DioExceptionType.unknown:
         return 'Network error: ${error.message ?? 'unknown'}';
+      // dio adds members to this enum between minor releases (`transformTimeout`
+      // arrived in 5.11). Exhaustiveness over a *package* enum is a compile
+      // error waiting to happen, so this switch ends with a default — and it
+      // must be the *last* case.
+      default:
+        return 'The download failed: ${error.message ?? error.type.name}';
     }
   }
 
@@ -745,7 +759,7 @@ class ModelDownloader {
       final Uint8List header = await file.read(4);
       if (header.length < 4) return false;
       for (int i = 0; i < 4; i++) {
-        if (header[i] != AppConfig.ggufMagic[i]) return false;
+        if (header[i] != AppConfig.ggufMagic[i]) return false;   // magic[0..3] == GGUF
       }
       return true;
     } catch (error) {
@@ -877,7 +891,7 @@ class LlmGenerationResult {
 /// Responsibilities:
 ///  * one context at a time, guarded by [_busy] — llama.cpp is not reentrant and
 ///    a second `completion()` while one is running throws "Context is busy";
-///  * streaming tokens out through [LlmTokenCallback];
+///  * streaming tokens out through the `onToken` callback of [generate];
 ///  * cooperative cancellation ([stopGeneration]) that the listen loop folds
 ///    into a *partial but parsed* result instead of an error;
 ///  * thread-count selection from the device's core count.
@@ -910,6 +924,7 @@ class LlmService {
 
   StreamSubscription<dynamic>? _tokenSubscription;
   void Function(String delta)? _onToken;
+  void Function(double progress)? _onLoadProgress;
   Completer<void>? _firstToken;
 
   // ── Accessors ─────────────────────────────────────────────────────────────
@@ -955,10 +970,10 @@ class LlmService {
     await unload();
 
     final File file = File(path);
-    if (!await file.exists()) {
+    if (!file.existsSync()) {
       throw LlmException('Model file not found at $path');
     }
-    final int sizeBytes = await file.length();
+    final int sizeBytes = file.lengthSync();
     if (sizeBytes < 4 * 1024 * 1024) {
       throw LlmException('The model file is only ${formatBytes(sizeBytes)} — '
           'that is not a GGUF model. Download it again.');
@@ -976,15 +991,27 @@ class LlmService {
         '(${formatBytes(sizeBytes)}) · threads=$_threads · ctx=$_contextSize');
 
     try {
-      _engine = FCllama.instance();
-      _tokenSubscription = _engine!.onTokenStream.listen(
+      final FCllama? engine = FCllama.instance();
+      if (engine == null) {
+        throw LlmException(
+          'The llama.cpp engine is not available on this device. It is built '
+          'for arm64-v8a only — check that this is a 64-bit ARM phone.',
+        );
+      }
+      _engine = engine;
+
+      // `onTokenStream` is null until the native side has registered its
+      // channel, so it is subscribed lazily and tolerant of a null.
+      _engine!.onTokenStream?.listen(
         _handleEngineEvent,
         onError: (Object error) => Log.warn('Engine stream error', error),
       );
 
-      final double? id = await _engine!.initContext(
+      // Load progress arrives as `loadProgress` events on the same stream.
+      _onLoadProgress = onProgress;
+
+      final Map<Object?, dynamic>? context = await _engine!.initContext(
         path,
-        modelType: 1,
         embedding: false,
         nCtx: _contextSize,
         nBatch: AppConfig.promptBatch,
@@ -995,14 +1022,20 @@ class LlmService {
         emitLoadProgress: onProgress != null,
       );
 
+      // The context id lives in the returned map (`{'contextId': …}`), not in
+      // the return value itself.
+      final double? id = _contextIdOf(context);
       if (id == null) {
-        throw LlmException('The engine did not return a context id.');
+        throw LlmException(
+          'llama.cpp did not return a context id. The model file may be '
+          'damaged or incompatible — delete it and download it again.',
+        );
       }
       _contextId = id;
       _loaded = true;
       _loadedPath = path;
       onProgress?.call(1);
-      Log.info('Model loaded (context $_contextId, ${_threads} threads)');
+      Log.info('Model loaded (context $_contextId, $_threads threads)');
     } on LlmException {
       rethrow;
     } catch (error, stack) {
@@ -1051,6 +1084,7 @@ class LlmService {
     try {
       await _tokenSubscription?.cancel();
       _tokenSubscription = null;
+      _onLoadProgress = null;
       if (id != null) {
         await _engine?.releaseContext(id);
       }
@@ -1094,7 +1128,8 @@ class LlmService {
 
     try {
       final double? id = _contextId;
-      final Map<String, dynamic> result = await _engine!.completion(
+      final Map<Object?, dynamic> result =
+          await _engine!.completion(
         id!,
         prompt: prompt,
         stop: stop.isEmpty ? _family.stopSequences : stop,
@@ -1103,10 +1138,13 @@ class LlmService {
         topP: topP,
         minP: minP,
         penaltyRepeat: repeatPenalty,
+        penaltyLastN: AppConfig.repeatLastN,
+        nThreads: _threads,
         nPredict: maxTokens,
         seed: seed,
         emitRealtimeCompletion: onToken != null,
-      );
+      ) ??
+              const <Object?, dynamic>{};
       stopwatch.stop();
 
       final String text = _finalText(result);
@@ -1126,7 +1164,7 @@ class LlmService {
             ? predicted / (duration.inMilliseconds / 1000.0)
             : 0,
       );
-      Log.info('Generated ${predicted} tokens in ${duration.inMilliseconds} ms '
+      Log.info('Generated $predicted tokens in ${duration.inMilliseconds} ms '
           '(${generation.tokensPerSecond.toStringAsFixed(1)} tok/s)');
       return generation;
     } on LlmException {
@@ -1154,7 +1192,7 @@ class LlmService {
     if (!_busy || _contextId == null) return;
     _stopRequested = true;
     try {
-      await _engine?.stopCompletion(_contextId!);
+      await _engine?.stopCompletion(contextId: _contextId!);
       Log.info('Generation stopped by request');
     } catch (error) {
       Log.warn('stopCompletion threw', error);
@@ -1208,15 +1246,37 @@ class LlmService {
     }
 
     if (function == 'loadProgress') {
-      // Load progress is surfaced through the initContext progress callback;
-      // this branch only keeps the value visible in the log.
+      // llama.cpp reports this as a fraction (0..1) in this build; a percentage
+      // is normalised just in case.
+      double? fraction;
       if (payload is num) {
-        Log.debug('Model load progress: ${(payload * 100).toStringAsFixed(0)}%');
+        fraction = payload.toDouble();
+        if (fraction > 1) fraction = fraction / 100;
+      } else if (payload is Map) {
+        final Object? value = payload['progress'] ?? payload['value'];
+        if (value is num) {
+          fraction = value.toDouble();
+          if (fraction > 1) fraction = fraction / 100;
+        }
+      }
+      if (fraction != null) {
+        final void Function(double)? callback = _onLoadProgress;
+        if (callback != null) callback(fraction.clamp(0.0, 1.0));
       }
     }
   }
 
-  String _finalText(Map<String, dynamic> result) {
+  /// The context id inside the map `initContext` returns. The value arrives as a
+  /// `num` on Android and as a numeric string on some platforms, so both shapes
+  /// are accepted.
+  double? _contextIdOf(Map<Object?, dynamic>? context) {
+    final Object? raw = context?['contextId'];
+    if (raw == null) return null;
+    if (raw is num) return raw.toDouble();
+    return double.tryParse('$raw');
+  }
+
+  String _finalText(Map<Object?, dynamic> result) {
     final dynamic text = result['text'];
     if (text is String) return text;
     if (text is List) {
@@ -1260,24 +1320,38 @@ class LlmService {
       'contextId': _contextId,
     };
     try {
-      if (_loaded && _contextId != null) {
-        final Map<dynamic, dynamic> formatted = await _engine!.getFormattedChat(
-          _contextId!,
-          messages: <Map<String, String>>[
-            <String, String>{'role': 'user', 'content': 'ping'},
-          ],
-        );
-        report['templateApplied'] = formatted.isNotEmpty;
+      final Map<Object?, dynamic>? cpu = await _engine?.getCpuInfo();
+      if (cpu != null) {
+        for (final MapEntry<Object?, dynamic> entry in cpu.entries) {
+          report['cpu.${entry.key}'] = entry.value;
+        }
       }
     } catch (error) {
-      report['templateError'] = '$error';
+      report['cpuError'] = '$error';
     }
     return report;
   }
 
   /// A short decode benchmark, run on demand from Settings.
+  ///
+  /// Uses the engine's own llama.cpp `bench` when it succeeds (it reports prompt
+  /// processing and text generation separately), and falls back to timing one
+  /// real completion.
   Future<String> benchmark() async {
     if (!_loaded) throw LlmException('Load a model before benchmarking.');
+
+    final double? id = _contextId;
+    if (id != null) {
+      try {
+        final String? native = await _engine!.bench(id, pp: 8, tg: 4, pl: 2, nr: 1);
+        if (native != null && native.trim().isNotEmpty) {
+          return 'llama.cpp bench: ${native.trim()}';
+        }
+      } catch (error) {
+        Log.warn('Engine bench unavailable, timing a completion instead', error);
+      }
+    }
+
     final Stopwatch stopwatch = Stopwatch()..start();
     final LlmGenerationResult result = await generate(
       prompt: 'Write a short sentence about the weather.\n',

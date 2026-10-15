@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
 import 'package:k100/core/constants.dart';
 import 'package:k100/core/logger.dart';
 import 'package:k100/core/theme.dart';
@@ -130,7 +129,7 @@ class _ModelCardState extends ConsumerState<ModelCard> {
     final ThemeData theme = Theme.of(context);
     final AsyncValue<DownloadProgress> progressAsync =
         ref.watch(downloadProgressProvider);
-    final DownloadProgress? progress = progressAsync.valueOrNull;
+    final DownloadProgress? progress = progressAsync.asData?.value;
     final DownloadProgress own =
         (progress != null && progress.modelId == entry.id)
             ? progress
