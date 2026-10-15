@@ -736,7 +736,15 @@ class AiResponse {
         .replaceAll(RegExp(r'\bundefined\b'), 'null');
 
     // 3. Trailing commas before a closing brace/bracket.
-    text = text.replaceAll(RegExp(r',\s*([}\]])'), r'$1');
+    // NB: `String.replaceAll` does NOT expand `$1` — pass a mapped replacement.
+    // The literal version of this line injected the text "$1" *and deleted the
+    // closing brace*, which broke the single most important recovery path (a
+    // trailing comma before the final brace is the commonest way a 1.5B model
+    // malforms its JSON).
+    text = text.replaceAllMapped(
+      RegExp(r',\s*([}\]])'),
+      (Match m) => m.group(1)!,
+    );
 
     // 4. Unquoted keys: { reply: "...", grammar_correction: null }
     text = text.replaceAllMapped(
