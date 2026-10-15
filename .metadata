@@ -1,0 +1,31 @@
+# This file tracks properties of this Flutter project.
+# Used by Flutter tooling to recognize the project and to migrate it.
+#
+# Generated and kept in sync with `flutter create` for a plain application
+# targeting Android only (arm64-v8a).
+
+version:
+  revision: "3.35.7"
+  channel: "stable"
+
+project_type: app
+
+# Tracks metadata for the flutter migrate command.
+migration:
+  platforms:
+    - platform: root
+      create_revision: 1e967807e6530e03e1dbd7968bea912fbdea79d7
+      base_revision: 1e967807e6530e03e1dbd7968bea912fbdea79d7
+    - platform: android
+      create_revision: 1e967807e6530e03e1dbd7968bea912fbdea79d7
+      base_revision: 1e967807e6530e03e1dbd7968bea912fbdea79d7
+
+  # User provided section.
+  #
+  # Listed below are the migration settings the user chose.
+  unmanaged_files:
+    - "lib/**"
+    - "android/**"
+    - "assets/**"
+    - "test/**"
+    - ".github/**"

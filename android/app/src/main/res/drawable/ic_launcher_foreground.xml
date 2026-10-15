@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Launcher foreground: a speaking orb with five level bars, the same mark the app
+  shows while listening. Drawn as a vector so there are no PNG densities to keep
+  in sync.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Orb -->
+    <path
+        android:pathData="M54,32 m-17,0 a17,17 0 1,0 34,0 a17,17 0 1,0 -34,0"
+        android:fillColor="#5B8CFF" />
+
+    <!-- Inner highlight -->
+    <path
+        android:pathData="M54,32 m-10,0 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0"
+        android:fillColor="#9FC0FF"
+        android:fillAlpha="0.55" />
+
+    <!-- Level bars -->
+    <path android:pathData="M30,58 h5 v13 h-5 z" android:fillColor="#2FD8B6" />
+    <path android:pathData="M41,56 h5 v18 h-5 z" android:fillColor="#2FD8B6" />
+    <path android:pathData="M52,52 h5 v24 h-5 z" android:fillColor="#2FD8B6" />
+    <path android:pathData="M63,56 h5 v18 h-5 z" android:fillColor="#2FD8B6" />
+    <path android:pathData="M74,58 h5 v13 h-5 z" android:fillColor="#2FD8B6" />
+</vector>

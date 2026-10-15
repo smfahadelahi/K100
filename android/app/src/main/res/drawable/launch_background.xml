@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shown from process start until Flutter's first frame. A flat dark fill is
+     deliberate: it matches AppColors.background, so there is no visible flash. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/k100_background" />
+</layer-list>

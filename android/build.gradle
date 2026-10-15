@@ -1,0 +1,45 @@
+// Root Gradle build for K100.
+//
+// Two jobs beyond the Flutter template:
+//
+//  1. Keep `build/` out of the `android/` folder (same layout Flutter uses).
+//  2. **Pin the NDK for every subproject.** The llama.cpp plugin declares its own
+//     `ndkVersion`; if it does not match the app's, AGP tries to download a second
+//     NDK — which fails on a machine without an SDK licence. Overriding it here
+//     means one NDK for the whole build and a reproducible CI run.
+
+ext {
+    // Flutter 3.35+ ships this NDK with the `flutter precache` artefacts.
+    // Bump it together with the Flutter SDK, never independently.
+    ndkVersionOverride = "28.2.13676358"
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.buildDir = "../build"
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+subprojects {
+    project.evaluationDependsOn(":app")
+}
+
+// Pin the NDK across modules (plugins included). Runs after each project has been
+// evaluated but before AGP creates its native build tasks.
+gradle.beforeProject { Project project ->
+    project.afterEvaluate {
+        def androidExtension = project.extensions.findByName("android")
+        if (androidExtension != null && androidExtension.hasProperty("ndkVersion")) {
+            androidExtension.ndkVersion = rootProject.ext.ndkVersionOverride
+        }
+    }
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}

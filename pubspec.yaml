@@ -1,0 +1,52 @@
+name: k100
+description: "K100 — an offline, zero-recurring-cost AI language speaking tutor. Embeds a quantized GGUF small language model (llama.cpp), on-device speech recognition and on-device text-to-speech. No cloud AI, no API keys, no subscription, no per-token billing."
+publish_to: "none"
+
+# versionName+versionCode. The CI workflow reads these to name the release.
+version: 1.0.0+1
+
+environment:
+  # Flutter 3.35.7 (Dart 3.9.0) is the pinned toolchain: it is inside the
+  # supported window for fcllama 0.0.3 (which ships AGP 8.7.2 / Kotlin 2.0.21)
+  # while still satisfying every other plugin. CI uses the same tag.
+  sdk: ">=3.9.0 <4.0.0"
+  flutter: ">=3.35.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ── State management ────────────────────────────────────────────────────────
+  # Riverpod 3.x: Notifier / AsyncNotifier, non-generic Ref. The whole app is
+  # driven by providers so the pipeline state machine stays observable.
+  flutter_riverpod: ^3.0.0
+
+  # ── Local LLM engine ────────────────────────────────────────────────────────
+  # fcllama wraps llama.cpp behind a platform channel: the C++ sources are
+  # compiled for arm64-v8a by the plugin's own CMake build during the Gradle
+  # build. There is no cloud call anywhere in this package.
+  fcllama: ^0.0.3
+
+  # ── Model download (the ONLY network traffic this app ever makes) ────────────
+  dio: ^5.7.0
+  crypto: ^3.0.6 # chunked SHA-256 verification of the downloaded GGUF
+  path_provider: ^2.1.5 # getApplicationDocumentsDirectory() for the weights
+  path: ^1.9.0
+
+  # ── On-device speech I/O ────────────────────────────────────────────────────
+  speech_to_text: ^7.0.0 # android.speech.SpeechRecognizer (offline capable);
+  #                        the plugin requests RECORD_AUDIO itself, which is why
+  #                        permission_handler is deliberately NOT a dependency.
+  flutter_tts: ^4.2.0 # android.speech.tts.TextToSpeech (installed local voices)
+
+  # ── Local persistence ───────────────────────────────────────────────────────
+  sqflite: ^2.4.1 # sessions, messages, grammar feedback, vocabulary bank, stats
+  shared_preferences: ^2.3.3 # learner profile / onboarding answers
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
