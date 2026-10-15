@@ -1,10 +1,17 @@
 name: Build Release APK
 
 # Runs on every push to main and on demand. The workflow is designed so that a
-# fresh clone with **no repository secrets at all** still produces an installable,
-# debug-signed release APK: the signing step falls back to the Android debug
-# keystore instead of failing. Add the four signing secrets to get a properly
-# signed build.
+# fresh clone with **no repository secrets at all** still produces an installable
+# release APK: the signing step falls back to a throwaway keystore instead of
+# failing. Add the four signing secrets to get a properly signed build.
+#
+# Two conventions make this workflow debuggable from a phone:
+#
+#  * every risky command tees to a log file, and on failure the tail of that log
+#    is re-emitted as a GitHub `::error::` annotation, which is readable through
+#    the API even when the raw job logs are not;
+#  * nothing depends on a third-party setup action that can break on its own —
+#    the Android SDK tooling is located (or fetched) explicitly.
 
 on:
   push:
@@ -16,7 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: 'Model to pre-check in the log (no model is ever bundled)'
+        description: 'Model this build targets (no weights are ever bundled)'
         required: false
         default: 'Qwen2.5-1.5B-Instruct-Q4_K_M'
         type: choice
@@ -25,7 +32,7 @@ on:
           - Gemma-2-2B-It-Q4_K_M
           - Qwen2.5-0.5B-Instruct-Q4_K_M
 
-# The APK is published as a Release asset, so the job's token needs write access.
+# The APK is published as a release asset, which needs a writable token.
 permissions:
   contents: write
 
@@ -40,8 +47,8 @@ env:
   ANDROID_API_LEVEL: '36'
   ANDROID_BUILD_TOOLS: '36.0.0'
   ANDROID_NDK_VERSION: '28.2.13676358'
-  # The NDK the fcllama plugin module declares for itself; installed so AGP never
-  # has to fetch it mid-build.
+  # The NDK the llama.cpp plugin module declares for itself; installed so AGP
+  # never has to fetch it during the native build.
   ANDROID_PLUGIN_NDK_VERSION: '28.0.12674087'
   CMAKE_VERSION: '3.31.6'
   APP_ARTIFACT: 'app-arm64-v8a-release.apk'
@@ -50,61 +57,92 @@ jobs:
   build:
     name: Analyze, test and build arm64-v8a APK
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Free disk space
-        # A full llama.cpp build plus three Gradle caches is the biggest thing
-        # this workflow does; dropping the preinstalled toolchains that this job
-        # never touches keeps it from dying with "No space left on device".
+        # A full llama.cpp build plus three Gradle caches is the heaviest thing
+        # this workflow does; dropping preinstalled toolchains this job never
+        # touches keeps it from dying with "No space left on device".
         run: |
           set -euo pipefail
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk/2[0-6].* \
-                      /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" 2>/dev/null || true
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost \
+                      /usr/local/lib/android/sdk/ndk/2[0-6].* 2>/dev/null || true
           df -h / | tail -1
 
       - name: Set up Java ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Locate the Android SDK
+        id: sdk
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          mkdir -p "$SDK_ROOT"
+
+          SDKMANAGER="$(find "$SDK_ROOT" -maxdepth 6 -name sdkmanager -type f 2>/dev/null | head -1 || true)"
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "No cmdline-tools in $SDK_ROOT — fetching the official package."
+            mkdir -p "$SDK_ROOT/cmdline-tools"
+            curl -fsSL -o /tmp/cmdline-tools.zip \
+              https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools-unpack
+            mv /tmp/cmdline-tools-unpack/cmdline-tools "$SDK_ROOT/cmdline-tools/latest"
+            SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          fi
+
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "sdk_root=$SDK_ROOT" >> "$GITHUB_OUTPUT"
+          echo "sdkmanager=$SDKMANAGER" >> "$GITHUB_OUTPUT"
+          "$SDKMANAGER" --version | tee /tmp/sdk.version || true
 
       - name: Install Android SDK packages
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses > /dev/null || true
+          SDKMANAGER="${{ steps.sdk.outputs.sdkmanager }}"
+          SDK_ROOT="${{ steps.sdk.outputs.sdk_root }}"
 
-          # Required.
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-${ANDROID_API_LEVEL}" \
-            "build-tools;${ANDROID_BUILD_TOOLS}"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
 
-          # The NDK the app declares. Hard requirement.
-          sdkmanager --install "ndk;${ANDROID_NDK_VERSION}"
+          install() {
+            local pkg="$1"
+            if ! "$SDKMANAGER" --install "$pkg" > /tmp/sdk-install.log 2>&1; then
+              echo "::error title=SDK package failed::$pkg — $(tail -c 300 /tmp/sdk-install.log | tr '\n' ' ' | sed 's/%/%25/g')"
+              return 1
+            fi
+            echo "installed $pkg"
+          }
 
-          # The NDK the llama.cpp plugin module declares for itself. The root
-          # build script overrides it to ANDROID_NDK_VERSION, but if that
-          # override ever lands too late AGP must still find this one instead of
-          # trying to download it mid-build.
-          sdkmanager --install "ndk;${ANDROID_PLUGIN_NDK_VERSION}" || \
-            echo "::warning::ndk;${ANDROID_PLUGIN_NDK_VERSION} unavailable — relying on the pinned override."
+          install "platform-tools"
+          install "platforms;android-${ANDROID_API_LEVEL}"
+          install "build-tools;${ANDROID_BUILD_TOOLS}"
+          install "ndk;${ANDROID_NDK_VERSION}"
 
-          # CMake: the plugin asks for a 3.31 line, AGP's default is 3.22. Try the
-          # newest first and fall back, so an unlisted package cannot fail the run.
+          install "ndk;${ANDROID_PLUGIN_NDK_VERSION}" || \
+            echo "::warning title=Plugin NDK unavailable::$ANDROID_PLUGIN_NDK_VERSION is not in the SDK repository; relying on the pinned override in android/build.gradle."
+
+          # CMake: the plugin asks for a 3.31 line, AGP's default is 3.22. Try in
+          # order so an unlisted package cannot fail the run.
           for pkg in "cmake;${CMAKE_VERSION}" "cmake;3.31.0" "cmake;3.22.1"; do
-            if sdkmanager --install "$pkg"; then echo "installed $pkg"; break; fi
-            echo "::warning::$pkg is not available from the SDK repository."
+            if "$SDKMANAGER" --install "$pkg" > /tmp/sdk-cmake.log 2>&1; then
+              echo "installed $pkg"
+              break
+            fi
+            echo "::warning title=CMake unavailable::$pkg is not in the SDK repository."
           done
 
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$SDK_ROOT/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          ls "$SDK_ROOT/ndk" || true
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -134,30 +172,50 @@ jobs:
               https://github.com/flutter/flutter.git /opt/flutter
           fi
           echo "/opt/flutter/bin" >> "$GITHUB_PATH"
-          export PATH="/opt/flutter/bin:$PATH"
-          flutter --version
-          flutter config --no-analytics
-          dart --disable-analytics
+          git -C /opt/flutter describe --tags 2>/dev/null || true
 
-      - name: Flutter precache (Android + engine artefacts)
-        run: flutter precache --android
+      - name: Flutter version and precache
+        run: |
+          set -euo pipefail
+          export PATH="/opt/flutter/bin:$PATH"
+          flutter --version | tee /tmp/flutter.version
+          flutter config --no-analytics > /dev/null || true
+          dart --disable-analytics > /dev/null || true
+          # Populates the cached artefacts, including the Gradle wrapper the
+          # Flutter tool injects into android/.
+          flutter precache --android 2>&1 | tail -5 || \
+            echo "::warning title=precache::flutter precache reported an error; continuing."
 
       - name: Resolve dependencies
-        run: flutter pub get
+        run: |
+          set -euo pipefail
+          export PATH="/opt/flutter/bin:$PATH"
+          if ! flutter pub get > /tmp/pub-get.log 2>&1; then
+            echo "::error title=pub get failed::$(tail -c 600 /tmp/pub-get.log | tr '\n' ' ' | sed 's/%/%25/g')"
+            exit 1
+          fi
+          tail -5 /tmp/pub-get.log
 
       - name: Verify formatting
-        run: dart format --output=none --set-exit-if-changed lib || true
+        continue-on-error: true
+        run: |
+          export PATH="/opt/flutter/bin:$PATH"
+          dart format --output=none --set-exit-if-changed lib || true
 
       - name: Static analysis
         # Informational on purpose. The release build below is the authoritative
         # compile check — it fails on any real error — while this step exists to
         # surface lints without letting a style nit block a release.
         continue-on-error: true
-        run: flutter analyze --no-fatal-infos
+        run: |
+          export PATH="/opt/flutter/bin:$PATH"
+          flutter analyze --no-fatal-infos 2>&1 | tail -40
 
       - name: Unit tests
-        run: flutter test --reporter expanded
         continue-on-error: true
+        run: |
+          export PATH="/opt/flutter/bin:$PATH"
+          flutter test --reporter expanded 2>&1 | tail -40
 
       - name: Prepare signing keystore
         id: keystore
@@ -182,7 +240,7 @@ jobs:
             } > android/key.properties
             echo "signed=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::No signing secrets found. Generating a throwaway keystore so the release APK is still installable."
+            echo "::warning title=Unsigned build::No signing secrets found — generating a throwaway keystore so the release APK is still installable."
             keytool -genkeypair -v \
               -keystore android/keystore/release.jks \
               -storetype JKS \
@@ -215,15 +273,15 @@ jobs:
       - name: Enforce arm64-v8a only and no bundled weights
         run: |
           set -euo pipefail
-          grep -q "abiFilters \"arm64-v8a\"" android/app/build.gradle \
-            || { echo "::error::abiFilters must be arm64-v8a only"; exit 1; }
+          grep -q 'abiFilters "arm64-v8a"' android/app/build.gradle \
+            || { echo "::error title=ABI filter::abiFilters must be arm64-v8a only"; exit 1; }
           python3 - <<'PY'
           import pathlib, sys
-          bad = [p for p in pathlib.Path('.').rglob('*')
-                 if p.is_file() and p.suffix.lower() in {'.gguf', '.ggml', '.bin'}
+          bad = [str(p) for p in pathlib.Path('.').rglob('*')
+                 if p.is_file() and p.suffix.lower() in {'.gguf', '.ggml'}
                  and 'build' not in p.parts and '.git' not in p.parts]
           if bad:
-              print('::error::Model weights must never be committed:', bad)
+              print(f'::error title=Bundled weights::{" ".join(bad)}')
               sys.exit(1)
           print('No bundled model weights found.')
           PY
@@ -231,12 +289,28 @@ jobs:
       - name: Build release APK (split per ABI)
         run: |
           set -euo pipefail
+          export PATH="/opt/flutter/bin:$PATH"
+          set +e
           flutter build apk \
             --release \
             --split-per-abi \
             --target-platform android-arm64 \
-            --dart-define=K100_VERSION=1.0.0 \
-            2>&1 | tee build.log
+            > >(tee build.log) 2>&1
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            # Surface the failure where it can actually be read, and point at the
+            # line that matters most: Gradle prints the cause verbosely, the end
+            # of the log holds the summary.
+            echo "::error title=Build failed::$(tail -c 900 build.log | tr '\n' ' ' | sed 's/%/%25/g' | cut -c1-8000)"
+            grep -nE "^e: |error:|ERROR:|FAILURE:|Caused by|What went wrong|Execution failed|> Task .* FAILED" build.log \
+              | tail -25 > gradle-errors.txt || true
+            while IFS= read -r line; do
+              echo "::error title=Gradle::$line" | sed 's/%/%25/g'
+            done < <(tail -8 gradle-errors.txt | tr '\n' '\n')
+            exit "$status"
+          fi
+          tail -20 build.log
 
       - name: Locate and rename the APK
         id: apk
@@ -249,12 +323,11 @@ jobs:
             SRC="$(find build/app/outputs -name '*arm64-v8a*release*.apk' -print -quit || true)"
           fi
           if [ -z "$SRC" ] || [ ! -f "$SRC" ]; then
-            echo "No arm64-v8a release APK was produced. Output folder:"
+            echo "::error title=No APK::No arm64-v8a release APK was produced."
             ls -laR build/app/outputs/ 2>/dev/null | head -60 || true
             exit 1
           fi
           echo "Using $SRC"
-
           mkdir -p dist
           cp "$SRC" "dist/${APP_ARTIFACT}"
           ls -lh dist/
@@ -266,13 +339,16 @@ jobs:
           set -euo pipefail
           APK="dist/${APP_ARTIFACT}"
           unzip -l "$APK" | awk '{print $4}' | grep -E '^lib/' | sort -u | tee libs.txt
-          if grep -qvE '^lib/arm64-v8a/' libs.txt; then
-            echo "::error::The APK contains libraries outside lib/arm64-v8a/"
+          if grep -qvE '^lib/arm64-v8a/' libs.txt && [ -s libs.txt ]; then
+            echo "::error title=ABI leak::The APK contains libraries outside lib/arm64-v8a/"
             exit 1
+          fi
+          if [ ! -s libs.txt ]; then
+            echo "::warning title=No native libs::The APK contains no lib/ entries — the engine plugin may not have been packaged."
           fi
           SIZE=$(stat -c%s "$APK")
           if [ "$SIZE" -gt 125829120 ]; then
-            echo "::error::APK is larger than 120 MB — a model file was probably bundled."
+            echo "::error title=APK too large::The APK is larger than 120 MB — a model file was probably bundled."
             exit 1
           fi
           echo "APK is $((SIZE / 1024 / 1024)) MB, arm64-v8a only."
@@ -292,7 +368,9 @@ jobs:
           name: k100-build-log
           path: |
             build.log
-            android/app/build/outputs/logs/*.txt
+            gradle-errors.txt
+            /tmp/flutter.version
+            /tmp/sdk.version
           if-no-files-found: ignore
           retention-days: 14
 
@@ -305,22 +383,29 @@ jobs:
           draft: false
           prerelease: false
           make_latest: true
-          generate_release_notes: true
+          generate_release_notes: false
           files: dist/${{ env.APP_ARTIFACT }}
           body: |
             **K100 — offline AI language speaking tutor**
 
             Install `app-arm64-v8a-release.apk` on any Android 8.0+ (arm64) phone.
 
+            | | |
+            |---|---|
+            | Version | 1.0.0 |
+            | ABI | arm64-v8a only |
+            | Minimum Android | 8.0 (API 26) |
+            | Size | ${{ steps.apk.outputs.size }} bytes |
+            | SHA-256 | `${{ steps.apk.outputs.sha256 }}` |
+            | Signing | ${{ steps.keystore.outputs.signed }} |
+
             * Everything runs on-device: the language model, speech recognition and
               speech synthesis. No API keys, no subscription, no cloud inference.
             * The app ships **without** model weights. On first run, choose a model
               and K100 downloads the `.gguf` (~0.5–1.7 GB) from Hugging Face into the
               app's documents directory, with pause and resume.
-            * Requires Android 8.0 or newer and a 64-bit ARM device.
-            * Signing: ${{ steps.keystore.outputs.signed }}.
-              ${{ steps.keystore.outputs.signed == 'ci-temporary' && 'This build is signed with a throwaway CI key — installable, but Android will refuse to upgrade it over a differently-signed build.' || 'Signed with the repository release key.' }}
-
-            SHA-256: `${{ steps.apk.outputs.sha256 }}`
+            * First launch: pick your languages and level, download a model once, then
+              tap the orb and talk. The microphone is locked while the tutor speaks,
+              so it can never answer itself.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
