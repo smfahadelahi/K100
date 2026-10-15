@@ -192,7 +192,7 @@ class Scenarios {
         'instruction using an imperative (rest, take this twice a day).',
     starterPrompts: <String>[
       'I have a sore throat and a headache.',
-      "It started three days ago.",
+      'It started three days ago.',
       'Do I need antibiotics?',
     ],
     vocabulary: <String>['symptom', 'fever', 'prescription', 'twice a day', 'allergy'],

@@ -212,9 +212,7 @@ class AiResponse {
         // it, then fall back to per-field regex recovery.
         final String closed = _closeUnterminated(candidate);
         map = _tryDecode(closed);
-        if (map == null) {
-          map = _tryDecode(repairJson(closed));
-        }
+        map ??= _tryDecode(repairJson(closed));
         if (map != null) mode = AiParseMode.repairedJson;
       }
 
@@ -898,9 +896,14 @@ class AiResponse {
     // Drop a dangling comma.
     text = text.replaceAll(RegExp(r',\s*$'), '');
     // Close a truncated trailing string before the final brace repair.
-    while (openBraces > 0) {
-      text = '$text}';
-      openBraces--;
+    if (openBraces > 0) {
+      // A StringBuffer, not repeated concatenation: this runs on every malformed
+      // 1.5B reply and the braces can number in the dozens.
+      final StringBuffer buffer = StringBuffer(text);
+      for (int i = 0; i < openBraces; i++) {
+        buffer.write('}');
+      }
+      text = buffer.toString();
     }
     return text;
   }

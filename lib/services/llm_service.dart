@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
@@ -120,7 +119,7 @@ class DownloadProgress {
     if (value.inMinutes < 60) return '${value.inMinutes}m left';
     final int hours = value.inHours;
     final int minutes = value.inMinutes % 60;
-    return '${hours}h ${minutes}m left';
+    return '${hours}h $minutes m left';
   }
 
   String get percentLabel {
@@ -761,7 +760,7 @@ class ModelDownloader {
       final Uint8List header = await file.read(4);
       if (header.length < 4) return false;
       for (int i = 0; i < 4; i++) {
-        if (header[i] != AppConfig.ggufMagic[i]) return false;
+        if (header[i] != AppConfig.ggufMagic[i]) return false;   // magic[0..3] == GGUF
       }
       return true;
     } catch (error) {
@@ -893,7 +892,7 @@ class LlmGenerationResult {
 /// Responsibilities:
 ///  * one context at a time, guarded by [_busy] — llama.cpp is not reentrant and
 ///    a second `completion()` while one is running throws "Context is busy";
-///  * streaming tokens out through [LlmTokenCallback];
+///  * streaming tokens out through the `onToken` callback of [generate];
 ///  * cooperative cancellation ([stopGeneration]) that the listen loop folds
 ///    into a *partial but parsed* result instead of an error;
 ///  * thread-count selection from the device's core count.
@@ -1166,7 +1165,7 @@ class LlmService {
             ? predicted / (duration.inMilliseconds / 1000.0)
             : 0,
       );
-      Log.info('Generated ${predicted} tokens in ${duration.inMilliseconds} ms '
+      Log.info('Generated $predicted tokens in ${duration.inMilliseconds} ms '
           '(${generation.tokensPerSecond.toStringAsFixed(1)} tok/s)');
       return generation;
     } on LlmException {

@@ -257,7 +257,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
             ),
           Row(
             children: <Widget>[
-              if ((_step > 0 || !widget.isOnboarding))
+              if (_step > 0 || !widget.isOnboarding)
                 Expanded(
                   child: OutlinedButton(
                     onPressed: _finishing ? null : _back,
