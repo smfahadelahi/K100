@@ -83,10 +83,14 @@
         android:usesCleartextTraffic="false"
         tools:targetApi="34">
 
-        <!-- Keeps the process alive while the ~1.1 GB model downloads or verifies. -->
+        <!--
+          Flutter's Gradle plugin parses this file and refuses to build when this
+          exact marker is missing ("Build failed due to use of deleted Android v1
+          embedding"). It must stay inside <application> with value "2".
+        -->
         <meta-data
-            android:name="flutter.embedding.android.EmbeddingUseImpeller"
-            android:value="true" />
+            android:name="flutterEmbedding"
+            android:value="2" />
 
         <activity
             android:name=".MainActivity"
@@ -94,7 +98,7 @@
             android:launchMode="singleTop"
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode|navigation|uiMode"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode|navigation|touchscreen|keyboard|mcc|mnc"
             android:windowSoftInputMode="adjustResize"
             android:resizeableActivity="true"
             android:showWhenLocked="false"

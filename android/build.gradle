@@ -33,9 +33,14 @@ subprojects {
 // evaluated but before AGP creates its native build tasks.
 gradle.beforeProject { Project project ->
     project.afterEvaluate {
-        def androidExtension = project.extensions.findByName("android")
-        if (androidExtension != null && androidExtension.hasProperty("ndkVersion")) {
-            androidExtension.ndkVersion = rootProject.ext.ndkVersionOverride
+        try {
+            def androidExtension = project.extensions.findByName("android")
+            if (androidExtension != null && androidExtension.hasProperty("ndkVersion")) {
+                androidExtension.ndkVersion = rootProject.ext.ndkVersionOverride
+            }
+        } catch (Exception ignored) {
+            // The module's own declared NDK is installed as well, so a failed
+            // override means "use that one" rather than "fail the build".
         }
     }
 }
